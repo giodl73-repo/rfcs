@@ -1,5 +1,5 @@
 ---
-title: Duplex Transport and Host Providers
+title: ClawBus: OpenClaw Hosted Duplex Protocol
 authors:
   - Gio Lodi
 created: 2026-07-10
@@ -9,18 +9,27 @@ issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
 ---
 
-# Proposal: Duplex Transport and Host Providers
+# Proposal: ClawBus: OpenClaw Hosted Duplex Protocol
 
 ## Summary
 
-Extend OpenClaw's Gateway transport model with a sibling `host-provider` peer
-that can receive bounded, capability-negotiated runtime-to-host invocations and
-return typed results. Reuse the proven correlation, timeout, connection-binding,
-and result machinery behind `node.invoke`, while giving host providers distinct
-identity, permissions, generation fencing, namespaces, and conformance. This
-allows Docker supervisors, Kubernetes operators, managed platforms, and OCC
-runtime cells to provide services such as egress, secrets, durable publication,
-or telemetry without inventing private runtime protocols.
+Define **ClawBus**, the hosted duplex form of the OpenClaw protocol. One
+authenticated, generation-bound `OpenClawTransport` session carries canonical
+OpenClaw requests, events, results, and typed streams in both directions:
+Gateway operations, Channel ingress, approvals, lifecycle, runtime identity,
+host-service calls, continuity, and AgentHarness. The host receives one
+supported OpenClaw runtime connection instead of a private parallel protocol.
+
+Each OpenClaw subsystem continues to own its payload semantics and schemas;
+ClawBus owns connection identity, capability negotiation, routing,
+correlation, bounds, isolation, and lifecycle. Add a sibling `host-provider`
+peer as the least-privilege host-facing role.
+Reuse the proven correlation, timeout, connection-binding, and result machinery
+behind `node.invoke`, while giving host providers distinct identity,
+permissions, generation fencing, namespaces, and conformance. This allows
+Docker supervisors, Kubernetes operators, managed platforms, and OCC runtime
+cells to provide services such as egress, secrets, durable publication, or
+telemetry without inventing private runtime protocols.
 
 ## Motivation
 
@@ -32,12 +41,22 @@ client/host  -- request --> OpenClaw
 client/host  <-- event  --- OpenClaw
 ```
 
-Serious hosting platforms also need the reverse application direction:
+Serious hosting platforms also need the reverse application direction and a
+single supported way to receive OpenClaw business over the same constrained
+connection:
 
 ```text
 OpenClaw -- bounded request --> host service
 OpenClaw <-- typed result   --- host service
 ```
+
+One ClawBus session is operationally attractive: it crosses routing and
+firewall boundaries once, authenticates the peer once, binds one active runtime
+generation, shares keepalive/reconnect, and avoids one sidecar or port per
+facility. Unlike a generic message bus, the catalog is OpenClaw-owned and
+contains canonical OpenClaw operations. Sharing the session does not move
+Channel, approval, lifecycle, continuity, or AgentHarness semantics into a
+transport-owned catch-all payload.
 
 Without an upstream facility, hosts place unrelated services on private
 sidecars, callbacks, or multiplexed pipes. The transport then begins defining
@@ -62,6 +81,15 @@ control plane.
 
 ## Goals
 
+- Extend `OpenClawTransport` with one host-facing OpenClaw duplex session.
+- Carry canonical Gateway, Channel, approval, lifecycle, identity,
+  host-service, continuity, and AgentHarness operations on that session.
+- Let plugins add namespaced OpenClaw methods/events through existing plugin
+  extension patterns rather than a generic protocol registry.
+- Share peer identity, generation fencing, keepalive, and reconnect while
+  preserving per-protocol authorization, bounds, and conformance.
+- Isolate protocol queues and streams so one saturated facility cannot block
+  Gateway control traffic.
 - Add a least-privilege host-provider peer distinct from operators and nodes.
 - Support Gateway-to-provider unary request/result invocation.
 - Reuse shared peer correlation, timeout, connection, and late-result behavior.
@@ -87,11 +115,54 @@ control plane.
 - Redefining AgentHarness events or terminal behavior.
 - Putting OCC in the runtime hot path.
 - A generic arbitrary callback bus.
+- A private central `oneof` whose transport owner defines every subsystem's
+  payload instead of referencing canonical OpenClaw schemas.
+- Moving Channel, approval, lifecycle, AgentHarness, or continuity semantics
+  into the transport layer.
 - Provider-specific backend implementation.
 - Streaming, resumability, or remote cancellation in the first implementation.
 - A single `hosted-openclaw` envelope containing every hosting concern.
 
 ## Proposal
+
+### ClawBus session
+
+ClawBus is not a new broker or a generic plugin message bus. It is one
+host-facing session of the existing OpenClaw protocol:
+
+```ts
+interface ClawBusSession extends OpenClawTransport {
+  hostRequests(): AsyncIterable<OpenClawHostRequest>;
+  respond(result: OpenClawHostResult): Promise<void>;
+  openStream(request: OpenClawStreamRequest): Promise<OpenClawStream>;
+}
+```
+
+The exact SDK shape should follow existing `OpenClawTransport` conventions.
+The semantic catalog is canonical OpenClaw business:
+
+| ClawBus family | Semantic owner |
+| --- | --- |
+| Gateway requests and events | Gateway protocol |
+| Channel ingress and acknowledgement | Channel/plugin SDK |
+| Pairing, exec, and plugin approvals | Existing Gateway approval protocols |
+| Lifecycle commands and results | Gateway suspend/lifecycle APIs |
+| Runtime identity and capabilities | Gateway handshake, status, and Readiness/Hosting Profiles |
+| Host-service requests and results | Versioned core or plugin host-provider descriptors |
+| Checkpoint/publication/continuity operations | Runtime State Continuity |
+| Agent execution streams | AgentHarness |
+
+ClawBus references or carries those canonical schemas; it does not copy them
+into one transport-owned union. A subsystem can evolve its schema and
+conformance without requiring the ClawBus router to learn its business meaning.
+The session negotiates which families and versions the peer can carry, applies
+the permission assigned to each canonical operation, and rejects unknown or
+ungranted traffic by default.
+
+Core Gateway request/event behavior remains compatible. ClawBus adds the
+reverse request/result direction and typed stream carrier needed by hosted
+peers. A host may use one physical WebSocket, HTTP/2, gRPC, or other conformant
+transport implementation; the ClawBus contract is above that carrier.
 
 ### Shared peer invocation substrate
 
@@ -336,11 +407,15 @@ future protocol extension.
 
 ### SDK shape
 
-The existing client transport remains compatible. A provider-capable client
-adds handler registration conceptually:
+The existing client transport remains compatible. A ClawBus-capable host client
+adds reverse request handling and typed streams; host-provider registration is
+one specialization:
 
 ```ts
-interface OpenClawHostProviderTransport extends OpenClawTransport {
+interface ClawBusSession extends OpenClawTransport {
+  hostRequests(): AsyncIterable<OpenClawHostRequest>;
+  respond(result: OpenClawHostResult): Promise<void>;
+  openStream(request: OpenClawStreamRequest): Promise<OpenClawStream>;
   registerProvider(provider: HostProvider): Disposable;
 }
 ```
@@ -404,11 +479,15 @@ usage, an expiry release, and a removal change.
 
 ### Implementation sequence
 
-1. Add the host-provider role, identity/admission model, provider registry, and
-   one unary request/result path by sharing peer-invocation machinery. Preserve
+1. Define the ClawBus host session, capability catalog, role/admission model,
+   and shared unary reverse request/result path. Preserve existing Gateway and
    `node.invoke` wire behavior.
-2. Add one bounded portable provider and a non-TypeScript conformance adapter.
-3. Propose streaming separately after a concrete provider requires it.
+2. Project one existing canonical family, such as approvals or lifecycle, over
+   the same session without copying its schema.
+3. Add one bounded portable host provider and a non-TypeScript conformance
+   adapter.
+4. Add typed streaming after AgentHarness or bounded brokered egress supplies
+   the concrete ordering, backpressure, cancellation, and terminal semantics.
 
 Approvals migrate through existing Gateway APIs and are not implementation
 prerequisites for Duplex Transport.
