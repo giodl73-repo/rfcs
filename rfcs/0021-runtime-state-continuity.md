@@ -58,6 +58,87 @@ or claim durability based on local artifact creation. Those approaches create
 data-loss races and couple deployment logic to OpenClaw's current paths and
 writers.
 
+### The problem observed in Lobster
+
+Lobster is trying to make OpenClaw inexpensive when idle and recoverable when a
+container disappears. It already owns useful host capabilities:
+
+- a durable Teams inbox that can retain work outside the container;
+- external cron wake scheduling;
+- container provisioning, placement, and generation fencing;
+- encrypted host storage and retention; and
+- runtime injection of Graph, proxy/session, and provider credentials.
+
+The missing piece is an OpenClaw-owned recovery contract. Lobster currently has
+to understand private paths and ordering, attempt workspace commit or copy
+operations, coordinate through private lifecycle signals, and decide when a
+container appears safe to remove. Those mechanisms cannot authoritatively say:
+
+- which OpenClaw state surfaces are required;
+- whether an online capture is internally valid;
+- which artifact set was accepted as one recovery point;
+- whether a new OpenClaw version can restore it;
+- whether runtime-owned identity can move without copying host credentials; or
+- when restored OpenClaw and its scheduler are ready for retained work.
+
+```mermaid
+flowchart LR
+    I["Teams / API / cron work"] --> L["Lobster host"]
+    L --> C["OpenClaw container"]
+    C --> S1["SQLite stores"]
+    C --> S2["Sessions and config"]
+    C --> S3["Workspace and plugin state"]
+    L -.->|"private path discovery,<br/>copy and restore ordering"| S1
+    L -.->|"private lifecycle signals"| C
+    L -.->|"infer safe removal"| C
+```
+
+This is fragile in both directions. Lobster becomes coupled to OpenClaw
+internals, while OpenClaw cannot describe or test the recovery guarantee that a
+host advertises on its behalf.
+
+### The proposed ownership boundary
+
+OpenClaw should define the continuity levels because only OpenClaw and its
+state owners know state meaning, native capture rules, restore ordering,
+compatibility, scheduler reconciliation, and readiness. Lobster should
+implement the host capabilities because it owns durable storage, encryption,
+credentials, retained ingress, placement, and compute lifecycle.
+
+```mermaid
+flowchart LR
+    OC["OpenClaw continuity owner<br/>inventory, capture, manifest,<br/>restore and readiness"]
+    HI["Hosted Integration binding<br/>typed identity, status,<br/>Doctor and generations"]
+    LH["Lobster host<br/>encrypted publication,<br/>retained ingress and compute"]
+    DS["Durable recovery point"]
+    NR["New runtime generation"]
+
+    OC -->|"publish exact manifest"| HI
+    HI -->|"host binding"| LH
+    LH --> DS
+    DS -->|"retrieve immutable source"| LH
+    LH -->|"provision and inject capabilities"| NR
+    NR -->|"restore validation and readiness"| OC
+```
+
+The CAPE levels make that shared contract useful beyond Lobster:
+
+```mermaid
+flowchart LR
+    C["Conventional<br/>current startup and shutdown"]
+    A["Archived<br/>checkpoint and explicit restore"]
+    P["Portable<br/>fresh-compute replacement"]
+    E["Elastic<br/>hibernate and wake"]
+
+    C --> A --> P --> E
+```
+
+Each level adds a measurable guarantee. A local user can remain Conventional or
+use local Archived recovery without a managed host. Lobster can implement
+Portable and Elastic by satisfying the same OpenClaw contracts rather than
+maintaining a private recovery protocol. Other hosts can provide different
+storage and wake mechanisms without teaching OpenClaw their backend details.
+
 OpenClaw already has important pieces:
 
 - `gateway.suspend.prepare/status/resume` can stop root work admission, report
