@@ -307,9 +307,11 @@ snapshot never implies remote durability by itself.
 
 A publication provider may consume artifact manifests and return a bounded
 acknowledgement containing checkpoint ID, artifact IDs/digests, source
-watermarks, storage receipt identity, and publication status. The transport may
-eventually use Duplex Transport, but publication semantics belong to this
-continuity contract.
+watermarks, storage receipt identity, and publication status. ClawBus, the
+hosted duplex form of the OpenClaw protocol, may carry that canonical
+request/result or a later typed stream on the host's existing session. Artifact
+meaning, durability acknowledgement, replay rules, and safe-to-destroy
+semantics remain owned by this continuity contract rather than ClawBus.
 
 Hosts may also choose a local-only durability profile. In that case,
 `safeToDestroy` means safe for the declared local persistence boundary, not safe
