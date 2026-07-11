@@ -105,25 +105,24 @@ flowchart TB
   Profile --> Ops["/ready, Status, and Doctor"]
 ```
 
-The diagram shows the four architectural areas:
+The design has four named parts:
 
-1. **Host integration plane:** Gateway clients, Channel endpoints, and traffic
-   policy attach at their canonical owner boundaries.
-2. **Host capability providers:** adapters, credential resolvers, dispatchers,
-   secrets, publication, and telemetry remain independently typed services.
-3. **Host wiring and composition:** the bundle registers offerings, owner
-   configuration selects them, and Hosting Profiles aggregates owner evidence.
-4. **Carrier options:** each binding uses its native carrier; only hosted
-   provider dispatch requires the narrow reverse carrier in V1.
+- **Host attachments:** Gateway clients, Channel endpoints, and traffic policy
+  attach at their canonical owner boundaries.
+- **Runtime capabilities:** adapters, credential resolvers, dispatchers,
+  secrets, publication, and telemetry remain independently typed services.
+- **Registration and readiness:** the bundle registers offerings, owner
+  configuration selects them, and Hosting Profiles aggregates owner evidence.
+- **Connection choices:** each binding uses its native transport; only hosted
+  provider dispatch requires the narrow reverse connection in V1.
 
-### V1 scope of Area 1 and Area 2
+### What V1 includes
 
-Area 1 and Area 2 deliberately solve different halves of hosted integration.
-Area 1 defines where a host attaches to OpenClaw-owned traffic and operations.
-Area 2 defines explicit capabilities that OpenClaw consumes from a selected
-binding.
+Hosted integration has two main kinds of work. Host attachments define where a
+host connects to OpenClaw-owned traffic and operations. Runtime capabilities
+define explicit services that OpenClaw consumes from a selected binding.
 
-#### Area 1: host integration plane
+#### Host attachments
 
 | Attachment kind | What V1 standardizes | Canonical owner | Initial Lobster migration |
 | --- | --- | --- | --- |
@@ -131,8 +130,7 @@ binding.
 | Channel endpoint | Route identity, trusted-forwarder authentication, limits, acknowledgement classes, idempotency, generation, readiness, and status | Channel | Teams delivery and acknowledgement move from private frames to a Channel-owned endpoint |
 | Traffic policy | Compiled deny/narrow/route decisions, proxy/TLS/private-route constraints, provenance, conflict behavior, and no-weaker-fallback | Provider request transport | Lobster enterprise egress policy compiles into the existing guarded provider-request path |
 
-Area 1 also defines the common binding envelope used to inspect these
-attachments:
+Host attachments share a common operational view:
 
 - desired and effective implementation;
 - semantic owner and interface version;
@@ -143,37 +141,37 @@ attachments:
 - authoritative, shadow, or disabled migration mode; and
 - structured failure and reload disposition.
 
-Area 1 does **not** define one callback schema. Gateway clients continue to use
-Gateway methods/events. Channel endpoints continue to use Channel-owned
+These attachments do **not** use one callback schema. Gateway clients continue
+to use Gateway methods/events. Channel endpoints continue to use Channel-owned
 payloads and acknowledgement rules. Traffic policy produces a compiled
 decision rather than becoming a remote per-request policy RPC.
 
-#### Area 2: host capability providers
+#### Runtime capabilities
 
 | Capability family | What V1 standardizes | Canonical owner | Initial Lobster migration |
 | --- | --- | --- | --- |
 | Provider adapter | Provider-specific URL, query, bounded body preparation, non-secret headers, credential-slot declaration, and response interpretation | Model, Channel, web, or other provider owner | CAPI, Substrate, WebIQ, Anthropic, ACF, and Graph preparation move out of the private forwarding handler |
 | Credential-slot resolver | Declared secret value, fixed placement, allowed origins, expiry/audience rules, redaction, and readiness | Credential or identity owner selected by the consuming owner | CAPI/Substrate tokens, API keys, Entra OBO, and agentic-user credentials become independently registered resolvers |
-| Traffic/network policy | Intersection of OpenClaw semantic authority with host route restrictions | Provider request transport; shared handoff with Area 1 | `lobster/enterprise-egress` authorizes or narrows the prepared request |
+| Traffic/network policy | Intersection of OpenClaw semantic authority with host route restrictions | Provider request transport; shared with host traffic policy | `lobster/enterprise-egress` authorizes or narrows the prepared request |
 | Provider-request dispatcher | One redirect-disabled HTTP exchange, physical DNS resolution, guard-profile enforcement, request/response streaming, cancellation, overload, and dispatch certainty | Provider request transport | ProxyPipe brokered provider egress moves to local or `lobster/egress` bindings |
 | Secret provider | Existing SecretRef-compatible hosted binding when env/file/exec are insufficient | Secrets | `lobster/vault` is a later capability proof, not the first deletion-bearing slice |
 | Publication provider | Durable publication after continuity defines checkpoint and receipt semantics | Runtime State Continuity | `lobster/workspace` remains blocked on the continuity contract |
 | Telemetry provider | Export through a host-owned sink with portable failures and redaction | Telemetry | `lobster/telemetry` is registered independently from request dispatch |
 
-Area 2 does **not** absorb Gateway approvals, Channel ingress, lifecycle,
-AgentHarness, arbitrary product services, or a universal
+Runtime capabilities do **not** absorb Gateway approvals, Channel ingress,
+lifecycle, AgentHarness, arbitrary product services, or a universal
 `{ interface, operation, payload }` host invocation API.
 
-#### Area 1 to Area 2 provider-request handoff
+#### How traffic policy and dispatch connect
 
-The provider path crosses the two areas at one explicit boundary:
+The provider path has one explicit handoff:
 
 ```text
 model/Channel/web owner adapter
   prepares URL, body, non-secret headers, response policy, and credential slots
         |
         v
-Area 1 traffic policy
+host traffic policy
   denies, narrows, or selects an authorized route
         |
         v
@@ -181,7 +179,7 @@ credential-slot resolver
   materializes only the declared secret value for allowed origins
         |
         v
-Area 2 provider-request dispatcher
+provider-request dispatcher
   performs one guarded, redirect-disabled physical exchange
         |
         v
@@ -458,8 +456,8 @@ mutually authenticated, pinned to a binding and generation, and validated
 under Channel-owned rules. The composition layer treats the body as opaque.
 
 At-least-once delivery is the default assumption. A Channel maps its protocol
-response into `accepted`, `retryable`, `terminal`, or `unconfirmed`; Area 1
-does not infer one global meaning for every HTTP status.
+response into `accepted`, `retryable`, `terminal`, or `unconfirmed`; the host
+attachment layer does not infer one global meaning for every HTTP status.
 
 ### Traffic policy attachments
 
@@ -902,8 +900,8 @@ The slice proves:
 - no implicit governed-to-direct fallback; and
 - policy generation and decision provenance.
 
-This slice proves the Area 1/Area 2 boundary. It does not migrate the streamed
-downstream provider-request path.
+This slice proves the traffic-policy-to-dispatch boundary. It does not migrate
+the streamed downstream provider-request path.
 
 ### Capability-provider slice
 
@@ -973,17 +971,17 @@ demonstration, or simple key-based provider. It must prove:
 - unresolved-reference Doctor findings; and
 - authoritative canary selection with explicit rollback.
 
-Exec approvals and Teams remain separate Area 1 adoption tracks. They register
-in later immutable versions of the same `lobster-host` bundle and use the same
-owner-selection, readiness, Hosting Profile, Status, Doctor, authority, and
-rollback model.
+Exec approvals and Teams remain separate host-attachment adoption tracks. They
+register in later immutable versions of the same `lobster-host` bundle and use
+the same owner-selection, readiness, Hosting Profile, Status, Doctor,
+authority, and rollback model.
 
 ## Host Status And Readiness
 
 This RFC reuses Hosting Profiles rather than introducing a second readiness
 system.
 
-Every selected Area 1 attachment and Area 2 capability publishes trusted,
+Every selected host attachment and runtime capability publishes trusted,
 owner-defined readiness evidence. Criteria are advisory by default. A built-in
 or additive namespaced Hosting Profile promotes the criteria required for that
 deployment.
@@ -1064,7 +1062,7 @@ Shared fixtures must prove:
 - independent queue isolation; and
 - compatibility with a non-TypeScript provider implementation.
 
-Area 1 conformance additionally proves:
+Host attachment conformance additionally proves:
 
 - approval replay/live dedupe, expiry, idempotent retry, and conflicting
   resolution rejection;
