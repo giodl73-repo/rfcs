@@ -302,6 +302,84 @@ OpenClaw already uses capability-specific extension patterns:
 
 These are the models to extend. A shared carrier is not a competing catalog.
 
+## What Exists Today And What Is Missing
+
+OpenClaw already has configuration and registries for many individual
+subsystems. This RFC does not replace them with a new host configuration tree.
+
+The gap is uneven: some hosted needs already have a canonical owner seam,
+others have only part of one, and some currently exist only inside Lobster's
+private forwarding path.
+
+| Need | What OpenClaw already has | What is missing for a managed host |
+| --- | --- | --- |
+| Approvals and administration | Canonical Gateway methods, events, roles, scopes, and a native approval consumer | Supported external-host packaging, non-TypeScript schemas/fixtures, least-privilege identity guidance, and binding readiness/status |
+| Teams ingress | Channel ownership and an existing HTTP delivery path | A typed endpoint attachment covering trusted forwarding, route identity, acknowledgement, idempotency, generation, and readiness |
+| Provider traffic governance | Proxy, TLS, SSRF, guarded fetch, and provider-request policy | A host-contributed compiled policy with provenance, conflict handling, managed-private route grants, and no-weaker-fallback |
+| Provider-specific preparation | Model/provider code prepares ordinary requests and interprets responses | Owner registration for CAPI/Substrate/WebIQ/Anthropic/Graph adaptations that currently live in Lobster forwarding code |
+| Request credentials | SecretRef providers and ordinary static provider authentication | A request-scoped credential-slot resolver with fixed header placement, allowed origins, audience/expiry, and redaction |
+| Physical provider dispatch | Guarded fetch performs the final network exchange locally | A replaceable one-hop dispatcher beneath the existing guard/redirect loop, with a local default and optional hosted binding |
+| Hosted reverse topology | Gateway and node transports provide useful connection machinery | A least-privilege provider-only reverse stream with independent flow control, generation fencing, cancellation, and certainty |
+| Hosted deployment readiness | Per-owner status plus Hosting Profiles | Owner criteria and one inventory joining desired IDs, resolved registrations, versions, provenance, generations, and failures |
+
+This is why Lobster could not solve the problem by adding more ordinary config
+references. A config value can select only an implementation type that its
+semantic owner knows how to resolve, validate, activate, and invoke. Several of
+those owner-owned registration and binding seams do not exist today.
+
+ProxyPipe therefore became both:
+
+- the physical route to the host; and
+- the private place where missing provider adaptation, credentials, policy,
+  correlation, streaming, acknowledgement, and operational behavior were
+  implemented.
+
+The RFC separates those concerns. Existing owner seams are reused. Missing
+owner seams are added narrowly. The reverse connection is retained only for
+the traffic that actually requires it.
+
+## What The Bundle Adds
+
+The host integration bundle does not create the capabilities above. Their
+semantic owners and implementations do.
+
+The bundle adds one packaging and validation boundary:
+
+1. a host package declares the implementation IDs and interface versions it
+   supplies;
+2. the complete manifest is validated before any contribution becomes visible;
+3. existing owner-specific config sections reference those IDs;
+4. each owner resolves the reference through its own registry and validates
+   compatibility;
+5. unresolved, disabled, ambiguous, or incompatible references fail
+   explicitly;
+6. readiness, Status, and Doctor can connect the selected config path to the
+   registered implementation and its current runtime evidence.
+
+Without the bundle, each owner could still register a hosted implementation
+independently, but operators would need to discover, install, version, inspect,
+and diagnose those contributions separately. The bundle makes one host's
+offerings coherent without making them one interface.
+
+The bundle does **not**:
+
+- define provider, Gateway, or Channel payloads;
+- grant credential or network authority;
+- activate every contribution in one transaction;
+- route every operation through one carrier; or
+- replace ordinary OpenClaw configuration.
+
+Its practical value is that distributed owner configuration can safely point
+to one validated set of host offerings:
+
+```text
+one installed host package
+  -> many owner-specific registered implementations
+  -> typed references from existing config sections
+  -> owner-local validation and activation
+  -> joined readiness, Status, and Doctor evidence
+```
+
 ## Goals
 
 - Define explicit host capability interfaces useful outside Lobster.
