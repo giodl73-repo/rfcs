@@ -378,6 +378,26 @@ shutdown and durable wake intent. Wake composes provisioning with restored
 startup. These compositions define Portable and Elastic behavior without
 changing how OpenClaw stores live state.
 
+### Who executes the lifecycle verbs
+
+The verbs are first-class OpenClaw semantics, but not every physical action can
+run inside OpenClaw:
+
+| Verb | OpenClaw responsibility | Host responsibility, when present |
+| --- | --- | --- |
+| `checkpoint` | Schedule and orchestrate native online capture, validate required state surfaces, produce the exact manifest, and invoke the selected publication binding. The built-in local binding can complete this without a host. | Provide a hosted publication binding that durably accepts and retains the exact manifest according to policy. |
+| `restore` | Select an explicitly requested or policy-compatible immutable point, materialize it, validate integrity and compatibility, reconstruct declared state, reconcile cron, and hold readiness closed until complete. | For automatic replacement, authorize the point, provision the destination, and re-issue external capabilities and credentials. |
+| `hibernate` | Accept a host proposal, close admission, report blockers, drain work, complete clean shutdown, and produce the closed-state handoff result. | Retain new ingress, perform post-exit closed-state capture when required, atomically accept the final point and wake intent, then remove compute. |
+| `wake` | Define the checkpoint-bound semantic deadline and perform restored startup, scheduler reconciliation, and readiness validation after provisioning. | Observe retained ingress or the deadline, allocate one fenced generation, inject capabilities, and withhold retained delivery until OpenClaw is ready. |
+| `sleep` | Report whether current work and owner state permit a host-specific sleep operation. | Suspend or retain the same compute using host-native mechanics. |
+
+OpenClaw therefore performs the checkpoints and restore semantics. It does not
+power off a machine, allocate a container, or wake itself from zero processes.
+It makes hibernate and wake safe and portable by owning the state transition,
+artifacts, validation, and readiness contract.
+Exact API, CLI, and RPC operation names remain implementation decisions; the
+semantic verbs and ownership split are normative.
+
 ### Runtime impact and fail modes
 
 Recurring capture is off the ordinary message, agent, and tool-call hot paths.
