@@ -154,6 +154,33 @@ Paths are implementation details unless a component contract explicitly makes
 them portable. Hosts consume descriptors, artifacts, and results rather than
 copying undocumented directories.
 
+The minimum descriptor is machine-readable:
+
+```ts
+type ContinuityComponentDescriptor = {
+  id: string;
+  owner: "core" | `plugin.${string}`;
+  stateClass: "durable" | "reconstructable" | "ephemeral" | "secret";
+  required: boolean;
+  writerIds: string[];
+  consistencyMechanism: string;
+  checkpointCapability: "none" | "observe" | "materialize";
+  restorePhase?: number;
+  restoreDependsOn?: string[];
+  formatId?: string;
+  schemaVersion?: string;
+  compatibilityRange?: string;
+  redactionClass: "public" | "operator" | "secret";
+};
+```
+
+Registration rejects duplicate IDs, dependency cycles, required durable
+components without classified writers, and restorable components without
+format/schema identity. Plugin descriptors are activation-scoped and
+namespaced; a plugin cannot claim a core component or another plugin's state.
+The release conformance inventory must account for every OpenClaw-owned writer,
+including an explicit reconstructable/ephemeral exclusion where appropriate.
+
 ### Canonical continuity status
 
 Continuity lives in runtime status:
@@ -336,6 +363,18 @@ Every required state writer must be one of:
 The implementation cannot claim aggregate `current` or `safeToDestroy` while a
 required writer is unclassified.
 
+Every checkpoint, publication receipt, restore result, and safe-to-destroy
+decision is bound to `{ runtimeId, runtimeGeneration, checkpointId }` plus the
+component watermark set and artifact-manifest digest. Equality of a friendly
+deployment name is never sufficient fencing. A provider result for an older
+runtime generation cannot advance continuity status for a newer process, even
+if artifact paths or component IDs are identical.
+
+Restore establishes a new runtime generation and records the source checkpoint
+separately. The restored runtime must not reuse the source writer lease or
+publish under the source generation. Admission remains closed until required
+component validation and any allowed migrations complete.
+
 ### `/synced` projection
 
 The canonical model is continuity status and checkpoint results. `/synced` is
@@ -393,6 +432,24 @@ Release tests should prove:
 - forced termination reports the actual last durable target;
 - restored runtime reports its source checkpoint before becoming ready;
 - compatibility behavior across supported OpenClaw releases.
+- complete descriptor accounting for every required writer;
+- dependency-cycle and unclassified-writer rejection;
+- restore into a new runtime generation without source-lease reuse;
+- duplicate and replayed publication receipt handling;
+- redaction of secret component identities and artifact metadata.
+
+### Host persistence migration and deletion gate
+
+A host may remove private persistence coordination only after the component
+inventory accounts for every path it currently copies, ignores, uploads, or
+restores. Migration proof must compare the old host artifact set with the
+OpenClaw manifest, execute drain/checkpoint/publication/restore through the
+reported generation, and inject mutation, timeout, stale-writer, corruption,
+quota, and incompatible-restore failures. Once that proof passes on the minimum
+supported OpenClaw release, the host deletes path discovery, opportunistic copy
+logic, private checkpoint/shutdown frames, and duplicate restore ordering.
+Temporary dual publication must be read-only for comparison, observable, owned,
+and time-bounded.
 
 ### Implementation sequence
 
