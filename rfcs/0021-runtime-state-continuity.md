@@ -211,7 +211,7 @@ the hot-path agent traffic and host storage implementation.
 Hosted Integration is an architectural and implementation prerequisite for
 hosted continuity bindings.
 
-RFC 0012 owns:
+RFC 0020 owns:
 
 - one immutable namespaced host integration bundle registration;
 - typed implementation references in semantic-owner configuration;
@@ -757,7 +757,7 @@ authorization, readiness, overload, Status, Doctor, and carrier realization.
 This RFC owns artifact meaning, commit/retrieval semantics, receipts, replay,
 lineage, restore use, and `safeToDestroy`.
 
-A hosted publication binding uses RFC 0012 identity and authorization:
+A hosted publication binding uses RFC 0020 identity and authorization:
 issuer/audience, provider instance, allowed interface/version/operations,
 tenant/runtime binding, publication-owner and host-bundle generations, expiry,
 credential identity, and proof of possession. This RFC adds checkpoint,
