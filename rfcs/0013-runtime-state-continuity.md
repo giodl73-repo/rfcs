@@ -1,5 +1,5 @@
 ---
-title: Runtime Continuity and Safe Shutdown
+title: Runtime State Continuity
 authors:
   - Gio Lodi
 created: 2026-07-10
@@ -9,18 +9,22 @@ issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/3
 ---
 
-# Proposal: Runtime Continuity and Safe Shutdown
+# Proposal: Runtime State Continuity
 
 ## Summary
 
-Define a portable continuity contract that lets a host quiesce an OpenClaw
-runtime, establish a final state checkpoint, distinguish locally materialized
-state from host-published durability, and determine when a process or container
-is safe to replace. Build on the existing `gateway.suspend.*` admission/drain
-model and snapshot primitives rather than creating a parallel shutdown system.
-Expose component state and checkpoint results through canonical status; add a
-narrow synchronization projection only if the implementation can prove a
-meaningful generation or watermark model.
+Define the portable state contract required to continue an OpenClaw runtime in
+another process, container, cell, or machine. The contract inventories state
+ownership, defines consistency and checkpoint boundaries, separates local
+materialization from durable publication, fences writers and runtime
+generations, specifies ordered restore and compatibility, and exposes stable
+continuity evidence.
+
+Build on the existing `gateway.suspend.*` admission/drain model and snapshot
+primitives rather than creating a parallel persistence or shutdown system.
+`/synced` is the aggregate durability projection, analogous to `/ready` for
+serviceability. Safe shutdown is one outcome of reaching a final synchronized
+generation; neither is the whole state feature.
 
 ## Motivation
 
@@ -52,10 +56,11 @@ OpenClaw already has important pieces:
 - snapshot work defines SQLite-consistent artifact creation, manifests,
   integrity verification, and restore semantics.
 
-The missing contract composes those pieces into a host-visible answer to:
+The missing contract composes those pieces into host-visible answers to:
 
-> Through which state point is this runtime recoverable, and may the host now
-> destroy it?
+> What state does OpenClaw own, through which state point is this runtime
+> recoverable, can that state be restored compatibly elsewhere, and may the
+> host now destroy this generation?
 
 OCC can use the same contract to move or replace cells while remaining outside
 the hot-path agent traffic and host storage implementation.
@@ -92,6 +97,39 @@ the hot-path agent traffic and host storage implementation.
   checkpoint.
 
 ## Proposal
+
+### Continuity model
+
+Runtime State Continuity is a pipeline, not a shutdown callback:
+
+```text
+state inventory and ownership
+  -> mutation generation or component watermarks
+  -> consistent local checkpoint
+  -> durable host publication
+  -> synced generation
+  -> generation-fenced safe replacement
+  -> ordered compatible restore
+  -> readiness
+```
+
+Each stage has a distinct authority:
+
+- OpenClaw owns state meaning, writer classification, consistency points,
+  artifact manifests, restore ordering, schema compatibility, and the current
+  runtime generation or component watermarks.
+- A publication provider owns the claim that exact artifacts were accepted by
+  the selected durability boundary.
+- The host owns storage destination, encryption, retention, scheduling,
+  placement, retry policy, and whether a declared durability class is
+  sufficient for replacement.
+
+The canonical status must therefore distinguish at least `dirty`,
+`materialized`, `published`, `synced`, `restoring`, and `unknown` facts without
+collapsing them into one success boolean. A runtime becomes dirty whenever a
+required acknowledged mutation advances beyond its published generation or
+component watermark. It becomes synced only when every required component is
+durable through the current target.
 
 ### State classes and descriptors
 
@@ -300,21 +338,24 @@ required writer is unclassified.
 
 ### `/synced` projection
 
-The canonical model is status and checkpoint result. A narrow `/synced` or
-equivalent probe may be added later if operators need a cheap projection:
+The canonical model is continuity status and checkpoint results. `/synced` is
+a cheap host-facing projection over that model:
 
 ```text
 synced = every required component is durable through the current target
 ```
 
-It does not mean ready, drained, or safe to destroy. Safe shutdown remains:
+It does not mean ready, drained, or safe to destroy. A runtime may be ready but
+dirty, or not ready but synced. Safe shutdown remains:
 
 ```text
 suspended + drained + synchronized through final target + publication ack
 ```
 
-The first implementation may omit `/synced` until the generation/watermark
-model is proven.
+`/synced` must fail closed as unknown until the implementation can account for
+every required writer through a defensible generation or component-watermark
+model. It must not infer success from quiet filesystem activity or the presence
+of an older checkpoint.
 
 ### Failure model
 
@@ -355,12 +396,20 @@ Release tests should prove:
 
 ### Implementation sequence
 
-1. Publish the state component inventory and canonical continuity status,
-   building on `gateway.suspend.*`.
-2. Add final checkpoint orchestration for local materialization and manifest
-   results using existing snapshot providers.
-3. Add host publication acknowledgement and safe-to-destroy fencing.
-4. Add a `/synced` projection only if operational evidence justifies it.
+1. Publish the state component inventory, writer classification, restore
+   dependencies, compatibility identities, and canonical continuity status.
+2. Establish an honest mutation-generation or component-watermark model and
+   expose dirty/synced conditions, including a fail-closed `/synced`
+   projection.
+3. Add checkpoint orchestration for local materialization and manifest results
+   using existing snapshot providers.
+4. Add host publication acknowledgement, stale-writer fencing, and an explicit
+   generation-bound safe-to-destroy result over `gateway.suspend.*`.
+5. Prove ordered restore, migration/compatibility failures, rollback limits,
+   and readiness only after required restored state validates.
+6. Add release conformance for mutation races, publication races, replacement,
+   restore, upgrade, rollback, and forced termination through the last known
+   durable generation.
 
 ## Rationale
 
@@ -416,5 +465,5 @@ conditions under which a durability acknowledgement is accepted.
 - Should credentials and pairing state be restored as artifacts, reprovisioned,
   or explicitly excluded by profile?
 - Which restore failures permit an operator-approved clean start?
-- Is `/synced` operationally valuable enough to expose, or is status plus
-  checkpoint result sufficient?
+- Which continuity details may be redacted from unauthenticated `/synced`
+  callers while preserving a useful boolean host probe?
