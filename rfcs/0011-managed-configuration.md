@@ -6,7 +6,7 @@ created: 2026-07-10
 last_updated: 2026-07-10
 status: draft
 issue:
-rfc_pr:
+rfc_pr: https://github.com/giodl73-repo/rfcs/pull/1
 ---
 
 # Proposal: Managed Configuration
