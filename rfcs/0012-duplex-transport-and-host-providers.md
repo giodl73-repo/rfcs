@@ -1,540 +1,1147 @@
 ---
-title: ClawBus: OpenClaw Hosted Duplex Protocol
+title: Hosted Integration and Capability Bindings
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
 ---
 
-# Proposal: ClawBus: OpenClaw Hosted Duplex Protocol
+# Proposal: Hosted Integration and Capability Bindings
 
 ## Summary
 
-Define **ClawBus**, the hosted duplex form of the OpenClaw protocol. One
-authenticated, generation-bound `OpenClawTransport` session carries canonical
-OpenClaw requests, events, results, and typed streams in both directions:
-Gateway operations, Channel ingress, approvals, lifecycle, runtime identity,
-host-service calls, continuity, and AgentHarness. The host receives one
-supported OpenClaw runtime connection instead of a private parallel protocol.
+Define two related hosted integration surfaces:
 
-Each OpenClaw subsystem continues to own its payload semantics and schemas;
-ClawBus owns connection identity, capability negotiation, routing,
-correlation, bounds, isolation, and lifecycle. Add a sibling `host-provider`
-peer as the least-privilege host-facing role.
-Reuse the proven correlation, timeout, connection-binding, and result machinery
-behind `node.invoke`, while giving host providers distinct identity,
-permissions, generation fencing, namespaces, and conformance. This allows
-Docker supervisors, Kubernetes operators, managed platforms, and OCC runtime
-cells to provide services such as egress, secrets, durable publication, or
-telemetry without inventing private runtime protocols.
+1. a **host integration plane** for wiring, governing, and observing canonical
+   OpenClaw ingress and egress; and
+2. capability-specific **host provider interfaces** for services that an
+   isolated OpenClaw runtime explicitly consumes.
+
+Define a namespaced **host integration bundle** that lets one hosting platform
+register its implementations centrally while typed OpenClaw owner
+configuration selects them at the correct semantic boundaries.
+
+Reuse Hosting Profiles to make every selected attachment and capability
+observable and to promote deployment-critical readiness criteria to required.
+
+Define one optional provider-dispatch reverse carrier for the narrow case where
+OpenClaw cannot reach an approved destination and the host must physically
+execute the request. This proposal does not define ClawBus or a generic host
+bus.
+
+This proposal separates two contracts that serve different users:
+
+```text
+application or operator
+  -> OpenClaw SDK
+  -> OpenClawTransport
+  -> Gateway requests and events
+
+OpenClaw runtime
+  -> capability-specific host interface
+  -> local, process, sidecar, or hosted binding
+  -> selected local or remote carrier
+  -> host implementation
+```
+
+`OpenClawTransport` remains the public app SDK's minimal client-to-Gateway
+`request()` and `events()` abstraction. It is not extended with reverse
+callbacks, provider registration, Channel ingress, lifecycle control, or
+AgentHarness streams.
+
+The host integration plane uses existing canonical Gateway, Channel, provider
+request, and lifecycle boundaries to connect OpenClaw to the outside world. It
+can apply explicit routing, policy, monitoring, provenance, and bounded
+transformations at those registered boundaries.
+
+### Architecture at a glance
+
+```mermaid
+flowchart TB
+  Host["Lobster host<br/>one namespaced offerings bundle"]
+
+  subgraph Registration["Central registration, distributed ownership"]
+    GatewayOffer["Gateway client<br/>approvals and administration"]
+    ChannelOffer["Channel endpoint<br/>Teams ingress"]
+    PolicyOffer["Traffic policy<br/>enterprise egress"]
+    AdapterOffer["Model adapter<br/>CAPI semantics"]
+    CredentialOffer["Credential resolver<br/>CAPI token"]
+    DispatcherOffer["Provider dispatcher<br/>host network execution"]
+    CarrierOffer["Reverse carrier<br/>bounded provider streams"]
+  end
+
+  Host --> GatewayOffer
+  Host --> ChannelOffer
+  Host --> PolicyOffer
+  Host --> AdapterOffer
+  Host --> CredentialOffer
+  Host --> DispatcherOffer
+  Host --> CarrierOffer
+
+  GatewayConfig["Gateway-owned config"] --> GatewayOffer
+  ChannelConfig["Channel-owned config"] --> ChannelOffer
+  ProviderConfig["Model/provider-owned config"] --> AdapterOffer
+  ProviderConfig --> CredentialOffer
+  RequestConfig["Provider-request-owned config"] --> PolicyOffer
+  RequestConfig --> DispatcherOffer
+
+  GatewayOffer --> GatewayPath["Canonical Gateway path"]
+  ChannelOffer --> ChannelPath["Channel-owned endpoint path"]
+  AdapterOffer --> Prepared["Prepared provider request"]
+  CredentialOffer --> Prepared
+  PolicyOffer --> Prepared
+  Prepared --> DispatcherOffer
+  DispatcherOffer --> CarrierOffer
+  CarrierOffer --> CAPI["CAPI or another approved provider"]
+
+  GatewayPath --> Evidence["Owner readiness and binding evidence"]
+  ChannelPath --> Evidence
+  Prepared --> Evidence
+  CarrierOffer --> Evidence
+  Evidence --> Profile["Hosting Profile<br/>required or advisory"]
+  Profile --> Ops["/ready, Status, and Doctor"]
+```
+
+The diagram shows the four architectural areas:
+
+1. **Host integration plane:** Gateway clients, Channel endpoints, and traffic
+   policy attach at their canonical owner boundaries.
+2. **Host capability providers:** adapters, credential resolvers, dispatchers,
+   secrets, publication, and telemetry remain independently typed services.
+3. **Host wiring and composition:** the bundle registers offerings, owner
+   configuration selects them, and Hosting Profiles aggregates owner evidence.
+4. **Carrier options:** each binding uses its native carrier; only hosted
+   provider dispatch requires the narrow reverse carrier in V1.
+
+Host provider interfaces describe **what capability OpenClaw consumes**.
+Bindings describe **where and how the implementation runs**. A local OpenClaw
+installation may use in-process, environment, file, executable, or direct
+network bindings. A managed host may satisfy the same interface through a
+generation-bound hosted binding.
+
+The architecture does not require a bus, generic integration API, Gateway
+replacement, or one physical connection. A later implementation may extract
+shared carrier machinery after a second real capability proves the need, but
+transport consolidation is not a V1 surface.
 
 ## Motivation
 
-The public `OpenClawTransport` contract and Gateway already support the normal
-client direction:
+OpenClaw normally has direct access to its network, filesystem, process
+environment, credentials, channels, and storage. Existing interfaces can be
+implemented locally.
 
-```text
-client/host  -- request --> OpenClaw
-client/host  <-- event  --- OpenClaw
+Managed hosts may deliberately isolate the runtime:
+
+- outbound traffic must use enterprise routing and policy;
+- credentials remain in a host-managed vault;
+- durable state is published to host-managed storage;
+- telemetry must include deployment and tenant context;
+- inbound channel traffic enters through a host-controlled endpoint; and
+- lifecycle actions must be fenced to the active runtime generation.
+
+Lobster currently satisfies several such needs through ProxyPipe, a
+reverse-dialed connection initiated by the container. Over time that physical
+connection accumulated private definitions for egress, product services,
+Teams delivery, lifecycle, approvals, runtime identity, and AgentHarness
+traffic.
+
+The problem is not that one connection carries multiple facilities. The
+problem is that the pipe became the owner of their interfaces. A replacement
+must not repeat that architecture under a new envelope.
+
+## Two Problems
+
+### Host integration and traffic governance
+
+The host needs a supported way to wire OpenClaw to external systems:
+
+- expose or proxy Gateway access;
+- attach Channel ingress and outbound delivery adapters;
+- apply egress proxy, TLS, identity, and network policy;
+- observe and audit traffic at canonical boundaries;
+- present and resolve approvals through a host operator client;
+- bind routes to the active container generation; and
+- report readiness and failure for each integration point.
+
+This is primarily a composition and governance problem. The host acts as an
+OpenClaw client, adapter, proxy, or policy boundary. `OpenClawTransport` is
+appropriate when the host is acting as a Gateway client.
+
+### Host capability provision
+
+The isolated runtime may also need to call a service implemented by the host:
+
+- resolve a secret;
+- dispatch a governed provider request;
+- publish durable state;
+- emit telemetry through a host-owned sink; or
+- acquire another explicitly declared capability.
+
+This is a provider problem. The runtime consumes a capability-specific
+interface and should not depend on the provider's location or carrier.
+
+Both problems contribute to ProxyPipe removal. They must not be collapsed into
+one method registry.
+
+## Existing Boundaries
+
+### OpenClaw app transport
+
+The public SDK defines `OpenClawTransport` as:
+
+```ts
+type OpenClawTransport = {
+  request<T>(
+    method: string,
+    params?: unknown,
+    options?: GatewayRequestOptions,
+  ): Promise<T>;
+  events(filter?: (event: GatewayEvent) => boolean): AsyncIterable<GatewayEvent>;
+  close?(): Promise<void> | void;
+};
 ```
 
-Serious hosting platforms also need the reverse application direction and a
-single supported way to receive OpenClaw business over the same constrained
-connection:
+It allows the high-level SDK to use Gateway WebSocket, fake, embedded, or
+future client transports without changing `OpenClaw`, `Agent`, `Run`, and
+`Session` APIs. Its caller is an application or operator controlling and
+observing OpenClaw.
 
-```text
-OpenClaw -- bounded request --> host service
-OpenClaw <-- typed result   --- host service
-```
+This RFC preserves that direction and ownership.
 
-One ClawBus session is operationally attractive: it crosses routing and
-firewall boundaries once, authenticates the peer once, binds one active runtime
-generation, shares keepalive/reconnect, and avoids one sidecar or port per
-facility. Unlike a generic message bus, the catalog is OpenClaw-owned and
-contains canonical OpenClaw operations. Sharing the session does not move
-Channel, approval, lifecycle, continuity, or AgentHarness semantics into a
-transport-owned catch-all payload.
+### Runtime extension interfaces
 
-Without an upstream facility, hosts place unrelated services on private
-sidecars, callbacks, or multiplexed pipes. The transport then begins defining
-copies of Gateway approvals, Channels, AgentHarness, lifecycle, and product
-semantics. Every new capability couples runtime and host releases and weakens
-OpenClaw's support and conformance model.
+OpenClaw already uses capability-specific extension patterns:
 
-OpenClaw already contains a close precedent. A paired node advertises commands
-and capabilities; Gateway sends `node.invoke.request`; the node returns
-`node.invoke.result`; pending calls are tied to a connection, timed out, and
-failed on disconnect. Duplex Transport should reuse that peer-invocation
-foundation rather than add another callback bus.
+- SecretRefs select bounded `env`, `file`, or `exec` providers.
+- Provider request policy separates auth, headers, proxy, TLS, SSRF, and
+  guarded fetch behavior.
+- Channel plugins expose distinct inbound, outbound, security, lifecycle,
+  status, and acknowledgement adapters.
+- AgentHarness plugins implement prepared execution attempts while core keeps
+  provider, transcript, workspace, tool, and delivery policy.
+- Gateway methods and events own approvals, pairing, status, and lifecycle
+  administration.
 
-Hosts are not nodes, however. Node identity, pairing, mobile wake, local-machine
-commands, and device policy are the wrong trust model for infrastructure. A
-separate host-provider peer makes the reusable mechanics explicit without
-turning a hosting platform into a paired user device.
-
-This also aligns with OCC. OCC may admit and provision provider peers, but
-runtime-to-host calls remain in the runtime/data plane rather than entering the
-control plane.
+These are the models to extend. A shared carrier is not a competing catalog.
 
 ## Goals
 
-- Extend `OpenClawTransport` with one host-facing OpenClaw duplex session.
-- Carry canonical Gateway, Channel, approval, lifecycle, identity,
-  host-service, continuity, and AgentHarness operations on that session.
-- Let plugins add namespaced OpenClaw methods/events through existing plugin
-  extension patterns rather than a generic protocol registry.
-- Share peer identity, generation fencing, keepalive, and reconnect while
-  preserving per-protocol authorization, bounds, and conformance.
-- Isolate protocol queues and streams so one saturated facility cannot block
-  Gateway control traffic.
-- Add a least-privilege host-provider peer distinct from operators and nodes.
-- Support Gateway-to-provider unary request/result invocation.
-- Reuse shared peer correlation, timeout, connection, and late-result behavior.
-- Negotiate provider IDs, versions, methods, and optional capabilities.
-- Bind provider sessions and invocations to an active deployment/runtime
-  generation.
-- Separate provider permissions from operator scopes and node pairing.
-- Require proof-of-possession admission for remotely useful provider authority.
-- Define provider namespaces, schemas, limits, failure behavior, and audit data.
-- Give plugins a namespaced provider registration path without allowing them to
-  claim core namespaces.
-- Provide conformance tests usable by TypeScript, Rust, gRPC, WebSocket, Docker,
-  Kubernetes, managed hosting, and OCC implementations.
-- Provide a migration path from private host pipes without upstreaming their
-  wire formats.
+- Define explicit host capability interfaces useful outside Lobster.
+- Define a host integration plane from existing canonical adapter and Gateway
+  boundaries.
+- Let a host register one namespaced integration bundle while owner config
+  selects typed implementations.
+- Reuse Hosting Profiles for required/advisory readiness, admission, health,
+  and status projection.
+- Preserve the same consuming interface across local and hosted deployments.
+- Allow implementations to be in-process, file/env/exec, loopback, sidecar, or
+  remote.
+- Add capability-specific hosted bindings only where local bindings are
+  insufficient.
+- Keep carrier selection replaceable and subordinate to bindings.
+- Bind remote providers to deployment identity and active runtime generation.
+- Give every interface independent schemas, permissions, bounds, failures,
+  health, and conformance.
+- Permit later carrier reuse without requiring a shared carrier catalog in V1.
+- Reuse proven correlation and connection machinery where appropriate.
+- Support TypeScript and non-TypeScript implementations with shared fixtures.
+- Enable incremental downstream retirement of duplicate private bridge
+  mechanics.
 
 ## Non-Goals
 
-- A replacement for Gateway client requests and events.
-- A new approval or node-pairing protocol.
-- Modeling host providers as nodes.
-- Carrying Teams-specific semantics; messaging remains a Channel concern.
-- Redefining AgentHarness events or terminal behavior.
-- Putting OCC in the runtime hot path.
-- A generic arbitrary callback bus.
-- A private central `oneof` whose transport owner defines every subsystem's
-  payload instead of referencing canonical OpenClaw schemas.
-- Moving Channel, approval, lifecycle, AgentHarness, or continuity semantics
-  into the transport layer.
-- Provider-specific backend implementation.
-- Streaming, resumability, or remote cancellation in the first implementation.
-- A single `hosted-openclaw` envelope containing every hosting concern.
+- Extending `OpenClawTransport` into a bidirectional host protocol.
+- A new Gateway replacement or second application RPC protocol.
+- A generic arbitrary method or event registry.
+- Treating a host provider as a paired node or granting one generic host
+  operator identity.
+- Copying Gateway, Channel, lifecycle, continuity, or AgentHarness schemas into
+  a carrier-owned union.
+- Requiring a sidecar or remote host for ordinary local OpenClaw.
+- Requiring one shared bus or connection.
+- Moving transparent network interception into OpenClaw application semantics.
+- Defining provider-specific enterprise backend implementation.
+- Solving all ProxyPipe families in one migration.
 
-## Proposal
+## Model
 
-### ClawBus session
+### Host wiring model
 
-ClawBus is not a new broker or a generic plugin message bus. It is one
-host-facing session of the existing OpenClaw protocol:
+OpenClaw should make hosted setup as easy as ProxyPipe without copying
+ProxyPipe's central semantic envelope.
 
-```ts
-interface ClawBusSession extends OpenClawTransport {
-  hostRequests(): AsyncIterable<OpenClawHostRequest>;
-  respond(result: OpenClawHostResult): Promise<void>;
-  openStream(request: OpenClawStreamRequest): Promise<OpenClawStream>;
-}
+The model has four steps:
+
+```text
+host integration bundle registers implementations
+  -> owner configuration selects typed implementation IDs
+  -> owners validate, activate, and publish readiness evidence
+  -> Hosting Profiles enforces the selected workload contract
 ```
 
-The exact SDK shape should follow existing `OpenClawTransport` conventions.
-The semantic catalog is canonical OpenClaw business:
+The bundle centralizes packaging and discovery. It does not configure every
+subsystem, construct arbitrary providers, accept callbacks, or define domain
+payloads.
 
-| ClawBus family | Semantic owner |
+Owner configuration remains authoritative for detailed settings. Hosting
+Profiles declares which resulting conditions are required; it does not select
+or configure implementations.
+
+### Host integration plane
+
+The host integration plane is a composition of registered, canonical
+boundaries rather than one new API:
+
+| Integration point | Canonical owner |
 | --- | --- |
-| Gateway requests and events | Gateway protocol |
-| Channel ingress and acknowledgement | Channel/plugin SDK |
-| Pairing, exec, and plugin approvals | Existing Gateway approval protocols |
-| Lifecycle commands and results | Gateway suspend/lifecycle APIs |
-| Runtime identity and capabilities | Gateway handshake, status, and Readiness/Hosting Profiles |
-| Host-service requests and results | Versioned core or plugin host-provider descriptors |
-| Checkpoint/publication/continuity operations | Runtime State Continuity |
-| Agent execution streams | AgentHarness |
+| Gateway requests, events, approvals, and status | Gateway and `OpenClawTransport` |
+| Message ingress | Channel-owned endpoints |
+| Message outbound delivery | Channel adapters plus provider/network routing |
+| Provider HTTP routing, TLS, proxy, and policy | Provider request transport |
+| Lifecycle administration | Gateway lifecycle APIs |
+| Runtime identity and readiness | Gateway handshake, status, and Hosting Profiles |
+| Agent execution | AgentHarness |
 
-ClawBus references or carries those canonical schemas; it does not copy them
-into one transport-owned union. A subsystem can evolve its schema and
-conformance without requiring the ClawBus router to learn its business meaning.
-The session negotiates which families and versions the peer can carry, applies
-the permission assigned to each canonical operation, and rejects unknown or
-ungranted traffic by default.
+OpenClaw should make these points discoverable, configurable, observable, and
+conformable for hosts. A host policy hook may allow, deny, route, annotate, or
+perform a schema-defined transformation only where the owning interface
+explicitly permits it. There is no global "intercept every message" hook.
 
-Core Gateway request/event behavior remains compatible. ClawBus adds the
-reverse request/result direction and typed stream carrier needed by hosted
-peers. A host may use one physical WebSocket, HTTP/2, gRPC, or other conformant
-transport implementation; the ClawBus contract is above that carrier.
+### V1 host attachment catalog
 
-### Shared peer invocation substrate
+The host integration plane has three V1 attachment kinds:
 
-Extract or share the general machinery currently demonstrated by
-`NodeRegistry.invoke`:
+1. **Gateway client** for canonical methods and events such as approvals,
+   pairing, observation, configuration, Channel lifecycle, suspension, and
+   restart administration.
+2. **Channel endpoint** for host routing to a Channel-owned webhook,
+   WebSocket, queue, polling endpoint, or owner-defined trusted-forwarder
+   route.
+3. **Traffic policy** for compiled destination, private-network, proxy, TLS,
+   and route constraints attached to provider traffic.
 
-- peer session registration and connection identity;
-- declared and effective capability/method ceilings;
-- random request correlation IDs;
-- request deadlines and pending-call cleanup;
-- connection-change and disconnect failure;
-- bounded request/result envelopes;
-- harmless late-result handling;
-- transport liveness and slow-consumer behavior.
+These kinds share composition metadata, not one callback schema. Approval
+payloads remain Gateway-owned, Channel payloads remain Channel-owned, and
+provider request semantics remain provider-owner-owned.
 
-Keep existing `node.invoke.*` wire names and behavior compatible. Add a sibling
-host-provider surface over the shared implementation.
+A speculative remote Channel adapter is not a V1 attachment kind. OpenClaw
+already owns in-process Channel adapter contracts, and the first Lobster Teams
+migration can use a Channel endpoint attachment. A remote adapter requires a
+concrete Channel that cannot use endpoint routing or ordinary outbound network
+governance.
+
+Every attachment descriptor declares:
+
+- stable owner-defined ID, kind, and version;
+- semantic owner and target;
+- required methods, events, scopes, capabilities, routes, or references;
+- authority and cardinality;
+- permitted outcomes and transformations;
+- authenticated identity and provenance requirements;
+- lifecycle and readiness behavior;
+- status source and redaction;
+- migration authority; and
+- references to owner-owned schemas.
+
+The catalog is metadata-only. It does not contain arbitrary callbacks,
+executable policy, payload unions, or carrier envelopes.
+
+Descriptor evolution is additive. Unknown optional fields may be ignored.
+Unknown required capabilities reject activation.
+
+### Gateway client attachments
+
+Gateway hello already advertises protocol version, methods, events,
+capabilities, authenticated role/scopes, initial state, and payload limits.
+Gateway method descriptors remain the canonical authorization and discovery
+table.
+
+Approval, pairing, observation, and administration normally use separate
+least-privilege logical clients. They may share a network route or connection
+pool only if independent authenticated principals, queues, and failure domains
+remain intact.
+
+### Channel endpoint attachments
+
+The Channel owner declares:
+
+- effective route and endpoint kind;
+- provider-direct, trusted-forwarder, or local-only authentication;
+- body and framing limits;
+- idempotency source;
+- acknowledgement and retry classification;
+- readiness and reload behavior; and
+- redaction.
+
+Provider-direct authentication is preferred. Trusted forwarding is explicit,
+mutually authenticated, pinned to a binding and generation, and validated
+under Channel-owned rules. The composition layer treats the body as opaque.
+
+At-least-once delivery is the default assumption. A Channel maps its protocol
+response into `accepted`, `retryable`, `terminal`, or `unconfirmed`; Area 1
+does not infer one global meaning for every HTTP status.
+
+### Traffic policy attachments
+
+Traffic governance is evaluated after OpenClaw resolves provider semantics and
+hard safety but before final dispatch:
 
 ```text
-Gateway peer invocation
-      |                         |
-      v                         v
-node.invoke                host.invoke
-node identity/pairing      provider identity/admission
-node command policy        provider permissions
-device commands            host service methods
+OpenClaw semantic request and hard safety
+  -> effective OpenClaw provider policy
+  -> host governance intersection
+  -> selected dispatch binding
+  -> provider response interpreted by semantic owner
 ```
 
-### Host-provider role
+V1 policy is compiled locally and receives redacted route metadata, not request
+bodies or credential values. It may deny, narrow destinations, reduce timeout,
+or select an approved route profile. It cannot weaken SSRF/TLS checks, replace
+protected attribution, silently change provider semantics, or expand an
+earlier policy.
 
-Add `host-provider` to the closed Gateway role set. A host-provider:
+Standard HTTP proxies and service-mesh egress gateways remain valid dispatch
+paths. A host provider is required only when the host physically executes the
+prepared request as an application capability.
 
-- has no operator scopes;
-- cannot call operator or node-only methods;
-- does not enter node/device pairing;
-- advertises a bounded provider surface;
-- receives only invocations authorized for that surface;
-- returns results through host-provider-only methods;
-- is removed or superseded when its hosted generation becomes stale.
+### Common binding status
 
-An operator connection remains separate. A hosting platform may maintain both:
+Prepared attachments expose:
 
-```text
-operator connection
-  approvals, pairing, status, lifecycle administration
+- binding and attachment IDs;
+- desired and effective state;
+- required or optional posture;
+- owner desired/observed generation and binding incarnation;
+- authoritative, shadow, or disabled mode;
+- authenticated principal summary;
+- resolved references;
+- configuration and policy provenance;
+- owner-produced status conditions; and
+- last transition and structured failure.
 
-host-provider connection
-  egress, secrets, publication, telemetry, plugin host services
-```
+Shared conditions include `Accepted`, `ResolvedRefs`, `Authenticated`,
+`Compiled`, `Listening`, `Programmed`, `Ready`, and `Degraded`. Not every
+attachment uses every condition. Status is current only when its observed
+generation matches the owner's desired generation.
 
-Combining those authorities is discouraged and should not be required by the
-protocol.
+Hosting Profiles and status aggregate owner truth; they do not accept
+host-written success that overrides Gateway, Channel, or provider-policy
+health.
 
-### Provider declaration
+### Host integration bundle
 
-Connect parameters gain an additive provider declaration, conceptually:
+A hosting platform may register one namespaced bundle that declares the
+implementations it can supply across independently owned OpenClaw contracts.
 
-```json
+Illustrative shape:
+
+```jsonc
 {
-  "role": "host-provider",
-  "client": {
-    "id": "host-provider",
-    "mode": "service",
-    "version": "1.0.0",
-    "platform": "linux",
-    "instanceId": "provider-instance-7f2"
-  },
-  "providers": [
-    {
-      "id": "egress",
-      "version": 1,
-      "methods": ["fetchMetadata"]
-    }
-  ],
-  "hostBinding": {
-    "deploymentId": "deployment-123",
-    "runtimeId": "runtime-456",
-    "generation": "generation-9"
+  "id": "lobster-host",
+  "version": "1.0.0",
+  "contracts": {
+    "channelEndpoints": ["lobster/teams"],
+    "trafficPolicies": ["lobster/enterprise-egress"],
+    "modelProviderAdapters": [
+      "lobster/anthropic-direct",
+      "lobster/capi",
+      "lobster/substrate-llmapi"
+    ],
+    "credentialSlotResolvers": [
+      "lobster/anthropic-key",
+      "lobster/capi-token",
+      "lobster/substrate-token"
+    ],
+    "providerRequestDispatchers": ["lobster/egress"],
+    "secretProviders": ["lobster/vault"],
+    "publicationProviders": ["lobster/workspace"],
+    "telemetryProviders": ["lobster/telemetry"],
+    "carriers": ["lobster/reverse-provider"]
   }
 }
 ```
 
-Names are illustrative. Provider declarations are untrusted input. Gateway
-computes the effective surface as:
+Names and exact manifest syntax are provisional. Existing plugin package and
+capability-provider registration should be reused. Missing contract types add
+owner-specific registry contributions; they do not add a universal host
+provider registry or generic invoke API.
+
+Provider adapters register with their semantic owner. CAPI and Substrate are
+model-provider contributions; Channel or web adaptations use their own owner
+registries. There is no universal provider-adapter registry.
+
+The bundle manifest is validated as one immutable registration snapshot before
+its contributions become visible. Owner activation remains independent.
+
+Owner config selects the registered IDs:
+
+```jsonc
+{
+  "channels": {
+    "msteams": {
+      "endpoint": "lobster/teams"
+    }
+  },
+  "providerRequests": {
+    "trafficPolicy": "lobster/enterprise-egress",
+    "dispatcher": "lobster/egress"
+  },
+  "models": {
+    "providers": {
+      "capi": {
+        "requestAdapter": "lobster/capi",
+        "credentials": {
+          "primary": "lobster/capi-token"
+        }
+      }
+    }
+  },
+  "secrets": {
+    "provider": "lobster/vault"
+  },
+  "hosting": {
+    "profile": "lobster/managed"
+  }
+}
+```
+
+This syntax is illustrative. The normative rule is that distributed fields are
+typed references to central registrations, not repeated host implementation
+definitions.
+
+The resulting provider path is assembled from independently typed
+contributions:
 
 ```text
-declared by peer
+provider owner adapter
+  -> declared credential slot resolver
+  -> provider-request policy
+  -> provider-request dispatcher
+```
+
+The adapter owns provider-specific URL, body, non-secret header, and response
+semantics. The credential resolver supplies only the declared secret value.
+The dispatcher owns only physical resolution and network execution.
+
+Credential use is the intersection of adapter declaration, owner
+configuration, resolver-declared placement/origins, and traffic/network
+policy. Naming a slot does not grant access to it.
+
+The bundle does not make Lobster the owner of Teams, provider requests,
+secrets, publication, telemetry, or Gateway. It packages Lobster
+implementations of contracts owned by those subsystems.
+
+Configuration references to missing, disabled, ambiguous, or incompatible
+bundle registrations fail explicitly. A configured governed binding never
+silently falls back to a less-governed direct implementation.
+
+### Capability interface
+
+A host provider interface is owned by the OpenClaw subsystem that consumes it.
+It defines:
+
+- stable interface and operation identifiers;
+- typed request, result, and failure schemas;
+- required and optional capabilities;
+- permissions and subject context;
+- semantic payload bounds;
+- idempotency and replay behavior;
+- redaction and domain audit semantics; and
+- conformance fixtures independent from any carrier.
+
+Illustrative interfaces include:
+
+```text
+secrets.resolve.v1
+provider-request.dispatch.v1
+publication.commit.v1
+telemetry.export.v1
+```
+
+These names are provisional. Interfaces should extend existing OpenClaw seams
+rather than introduce a parallel host namespace when a suitable contract
+already exists.
+
+Channels, approvals, AgentHarness, and lifecycle remain their existing
+interfaces. They may gain hosted bindings, but they are not reclassified as
+generic host providers.
+
+### Binding
+
+A binding implements a capability interface in a particular environment:
+
+```text
+in-process plugin
+environment or mounted file
+bounded executable
+loopback socket
+local sidecar
+capability-specific hosted binding
+```
+
+The consuming OpenClaw subsystem does not change because a deployment chooses
+a different binding.
+
+Bindings may expose additional operational metadata such as provider instance,
+endpoint, connection state, owner generation, and host bundle generation. That
+metadata must not leak into the semantic interface unless it changes portable
+behavior.
+
+A hosted binding is specific to one capability interface and version. It is
+not a universal `{ interface, operation, payload }` invocation API.
+
+### Provider-dispatch reverse carrier
+
+V1 defines no generic carrier catalog. Gateway clients use Gateway, Channel
+endpoints use their declared endpoint transport, traffic policy commonly uses
+an HTTP proxy or service mesh, and local capabilities continue to use their
+native bindings.
+
+One optional reverse carrier is defined for provider-request dispatch when:
+
+- OpenClaw cannot directly reach the approved destination;
+- a standard proxy or service mesh is insufficient; and
+- the host must physically execute the prepared request.
+
+```text
+host dispatcher opens authenticated provider-dispatch session
+  -> OpenClaw admits binding ID, interface version, and generation
+  <- OpenClaw sends prepared dispatch operations and body credit
+  -> host returns response streams or structured dispatch failures
+```
+
+The recommended first realization is a dedicated least-privilege host-provider
+session that reuses Gateway challenge, identity, limits, correlation, and peer
+invocation machinery where practical. Provider bodies use independent queues
+and scheduling from operator Gateway traffic.
+
+The carrier supports bounded bidirectional streams, request/response credit,
+half-close, cancellation, one terminal result, connection-incarnation
+tracking, and generation fencing. It does not interpret provider status codes,
+redirects, retries, credentials, or bodies.
+
+Transport failure distinguishes at least:
+
+```text
+not-started
+started-unconfirmed
+response-started
+completed
+```
+
+V1 does not replay or resume requests after reconnect. OpenClaw owns any
+semantic retry decision.
+
+Existing `node.invoke` wire behavior remains unchanged. Shared internal pending
+call or peer-session machinery may be extracted, but a host is not represented
+as a node or operator.
+
+A shared multipurpose carrier may be proposed later only after a second
+capability demonstrates duplicated connection cost that outweighs failure,
+flow-control, security, and release coupling.
+
+## Binding Selection And Activation
+
+For each attachment or capability, its owning config selects at most one
+effective implementation for the applicable scope.
+
+1. A host bundle registers implementations and interface versions.
+2. Owner config references one registered ID.
+3. The owner validates configuration, policy, compatibility, and authority.
+4. The owner activates its binding and publishes trusted readiness evidence.
+5. Hosting Profiles classifies the criterion as required or advisory.
+6. Required criteria must all be `True` before hosted traffic is admitted.
+7. A same-generation reconnect may restore one binding incarnation but does
+   not replay in-flight work.
+8. A newer owner generation supersedes the old binding and rejects stale
+   results.
+9. Remote failure never silently falls back to a less-governed local binding.
+
+During migration, dual-stack operation is explicit observation or comparison,
+not implicit fallback. It declares a primary, a shadow or compatibility path,
+mismatch telemetry, an expiry release, and the exact removal gate.
+
+There is no cross-owner distributed activation transaction:
+
+```text
+prepare
+  -> activate dependencies
+  -> observe owner readiness
+  -> publish owner evidence
+  -> Hosting Profiles adjudicates readiness
+  -> compensate or remain non-ready on failure
+```
+
+Owners fence their own side effects and generations. Hosting Profiles observes
+the result; it does not construct providers or perform activation.
+
+## Identity And Authorization
+
+A remote provider binding must prove:
+
+- issuer and deployment audience;
+- provider instance or public-key identity;
+- allowed interfaces, versions, and operations;
+- tenant/runtime binding when applicable;
+- active owner binding generation and host bundle generation;
+- issued-at, expiry, and credential identifier; and
+- possession of the matching private key or equivalent secret.
+
+Provider permissions are distinct from operator scopes and node pairing.
+Unknown interfaces, versions, operations, and generations fail closed.
+
+Effective authority is:
+
+```text
+declared by provider
   intersect credential grants
-  intersect configured host requirements/allowlist
+  intersect configured host requirements
   intersect protocol-version support
 ```
 
-Like node command ceilings, an active connection may be narrowed but never
-expanded beyond its declaration and credential grants.
+An active connection may narrow but not expand its admitted authority.
 
-### Admission and identity
+A host dispatcher that physically executes a prepared provider request may
+observe credentials in protected headers. That data-plane exposure does not
+grant authority to resolve, mint, widen, or reuse secret references.
+Credentials should be scoped and short-lived where possible and must be
+redacted from logs, status, failures, and audit payloads.
 
-Host-provider authority uses a short-lived, capability-bound credential tied
-to:
+## Generation Fencing
 
-- issuer and Gateway/deployment audience;
-- provider peer identity or public-key thumbprint;
-- allowed provider IDs, versions, and methods;
-- tenant/runtime binding when applicable;
-- active host/runtime generation;
-- issued-at, expiry, and credential ID.
+Every remote route and pending operation records connection identity plus two
+generations:
 
-The RFC specifies validation semantics, not a mandatory JWT format.
+- the **owner binding generation**, which identifies the authoritative owner
+  configuration; and
+- the **host bundle generation**, which identifies the admitted host deployment
+  and implementation set.
 
-Reuse the Gateway challenge/nonce pattern for proof of possession. The peer
-signs a canonical payload containing its identity, role, declared provider
-surface digest, host binding/generation, credential identifier or digest,
-server nonce, and timestamp.
+A newer owner generation supersedes the older binding before side effects. A
+newer host bundle generation requires re-admission and a new carrier
+incarnation, but does not advance owner configuration. Remote operations carry
+both generations; stale pending operations fail with a stable stale-route
+result, and late completions for either generation are ignored and audited.
 
-Shared Gateway passwords, trusted-proxy user headers, operator device tokens,
-and node pairing are insufficient provider credentials because they do not bind
-this authority and lifecycle.
+Local bindings may use process lifetime as their generation. Managed hosts may
+use a deployment revision or lease. The portable contract does not require a
+particular host database or controller.
 
-Deployment paths may include:
+## Failure And Overload
 
-- a one-time local bootstrap credential for a colocated Docker supervisor;
-- a managed credential provisioned with Gateway startup by Lobster or OCC;
-- explicit administrator enrollment for a remote third-party provider.
-
-Interactive device-style pairing is not the default for infrastructure peers.
-
-### Generation fencing
-
-Every provider session and pending invocation carries both Gateway connection
-identity and hosted generation.
-
-1. A host/controller provisions expected generation `G`.
-2. Gateway admits only a credential for `G`.
-3. A newer valid generation atomically supersedes the previous provider peer.
-4. Calls on the old connection fail with a stable stale-peer/route-changed
-   result.
-5. Late old-generation results are ignored and audited.
-6. Credential or expected-generation rotation closes stale sessions.
-
-Local deployments may use a process/startup generation. Managed deployments
-may supply a lease or revision. The portable contract does not require any
-particular host storage or lease system.
-
-### Provider registry and permissions
-
-Core providers use reserved namespaces such as:
+Each capability interface defines domain schemas, domain failures, semantic
+authorization, and idempotency. A binding profile defines availability,
+readiness, and resource limits. A remote carrier may add transport failures
+such as:
 
 ```text
-host.egress.v1
-host.secrets.v1
-host.publication.v1
-host.telemetry.v1
+ProviderUnavailable
+ProviderOverloaded
+ProviderTimedOut
+ProviderStale
+ProviderRouteChanged
+InvalidProviderResult
 ```
 
-Plugin providers use:
+Each hosted binding has maximum in-flight operations, request/result byte
+limits, and a bounded queue policy. Saturating one interface must not block
+Gateway control traffic or another provider binding.
+
+Timeout does not imply that remote work stopped. The unary foundation does not
+claim cancellation. The provider-dispatch reverse carrier adds advisory
+cancellation only; dispatch-certainty state, not a cancellation
+acknowledgement, determines whether retry can be safe.
+
+Retry remains the consuming interface's decision and is allowed only for
+operations declared idempotent.
+
+## Ingress, Egress, And Interception
+
+Three concepts must remain distinct:
+
+1. **Transparent host mediation** observes or constrains network traffic around
+   the container. Proxies, firewalls, service meshes, and policy engines own
+   this layer.
+2. **Ingress adapters** translate external activity into a canonical OpenClaw
+   interface such as a Channel.
+3. **Host providers** are explicit capabilities invoked by OpenClaw, such as a
+   secret resolver or governed provider-request dispatcher.
+
+Transparent mediation does not require a host-provider operation. An ingress
+adapter does not become a generic host callback. An explicit provider call
+must not silently intercept unrelated Gateway or Channel traffic.
+
+## Evidence Slices And First Vertical Milestone
+
+The two problems require separate evidence slices.
+
+### Traffic-plane slice
+
+Move exec approval presentation and resolution from ProxyPipe tags 29-30 to a
+dedicated, least-privilege host operator connection using canonical Gateway
+events and methods through `OpenClawTransport`.
+
+This proves hosted wiring, identity, policy, monitoring, generation ownership,
+and mixed-version migration without inventing a provider interface.
+
+OpenClaw already contains the reference approval consumer behavior in its
+native Channel approval runtime: least-privilege connection, pending replay,
+live-event deduplication, expiry, reconnect, and resolved-event finalization.
+The product gap is supported packaging, non-TypeScript schemas and
+conformance, composition status, and hosted identity guidance rather than a
+new approval protocol.
+
+### Channel endpoint slice
+
+Move Teams activity delivery and acknowledgement from ProxyPipe tags 12-13 to
+a Channel endpoint attachment over the existing pod-locality-independent HTTP
+route.
+
+The slice proves:
+
+- pinned tenant/user/runtime route identity;
+- owner-defined trusted-forwarder authentication;
+- stable delivery ID and duplicate acceptance;
+- accepted, retryable, terminal, and unconfirmed outcomes;
+- endpoint generation and readiness; and
+- fixture/probe shadow validation without duplicating live actionable events.
+
+It makes the pipe-local delivery waiter and acknowledgement routing redundant
+downstream without introducing `channel.ingress`.
+
+### Traffic policy slice
+
+Compile one host provider-egress policy into the existing provider request
+policy and guarded-fetch path.
+
+The slice proves:
+
+- destination denial;
+- approved route-profile selection;
+- conflicting policy activation failure;
+- no implicit governed-to-direct fallback; and
+- policy generation and decision provenance.
+
+This slice proves the Area 1/Area 2 boundary. It does not migrate the streamed
+downstream provider-request path.
+
+### Capability-provider slice
+
+Add a hosted provider-request dispatcher beneath the existing provider request
+policy and guarded-fetch layers:
+
+- register provider-specific adapters with their semantic owners and register
+  credential-slot resolvers separately from the dispatcher;
+- let model, Channel, or provider owners select adapters that prepare
+  provider-specific URL/body/non-secret headers and response handling;
+- keep auth, redirect handling, cross-origin header rewriting, TLS/SSRF policy,
+  semantic retry, and response interpretation in OpenClaw;
+- replace only one redirect-disabled network exchange inside the guarded-fetch
+  loop;
+- require the selected dispatcher to enforce OpenClaw's versioned network guard
+  profile where physical DNS resolution and connection occur;
+- preserve a local direct-network binding;
+- define request/response streaming, replayability, bounds, cancellation, and
+  dispatch certainty before claiming full HTTP parity;
+- permit host-only private destinations only through explicitly authorized
+  origins/CIDRs in the selected binding profile;
+- use declared origin-scoped header credential slots rather than arbitrary host
+  mutation; and
+- enable downstream egress migration after equivalent bounded and streamed
+  behavior is proven for the same guard profile.
+
+Hosted secret resolution remains a useful second provider binding, but it does
+not currently migrate a private bridge path and therefore is not the first
+adoption-bearing slice.
+
+Selection criteria for later providers:
+
+- useful outside Lobster;
+- same interface supports a local binding;
+- no change to `OpenClawTransport`;
+- no copied Gateway or Channel schema;
+- meaningful downstream simplification; and
+- reusable TypeScript and Rust conformance.
+
+### Full CAPI vertical milestone
+
+The first implementation milestone combines the preceding contracts into one
+production-shaped CAPI proof:
 
 ```text
-plugin.<plugin-id>.<service>.v1
+lobster-host bundle registration
+  -> model owner selects lobster/capi
+  -> model owner selects lobster/capi-token
+  -> provider request applies lobster/enterprise-egress
+  -> lobster/egress dispatches through the reverse carrier
+  -> CAPI streaming response returns through OpenClaw-owned semantics
+  -> Hosting Profile, Status, and Doctor expose the assembled binding
 ```
 
-Each provider descriptor declares:
+The milestone is not complete after a provider-neutral fixture, registry-only
+demonstration, or simple key-based provider. It must prove:
 
-- provider ID and version;
-- methods and request/result schemas;
-- permission identifiers;
-- required and optional availability;
-- timeout and payload bounds;
-- idempotency/replay behavior;
-- redaction and audit metadata.
+- local and hosted CAPI conformance;
+- URL, query, body, non-secret header, and streamed response adaptation;
+- origin-scoped host token acquisition;
+- public and explicitly authorized managed-private routes;
+- redirect-disabled one-hop dispatch and per-hop guard evaluation;
+- bounded request and response streaming;
+- overload, cancellation, stale generation, and dispatch certainty;
+- no reconnect replay;
+- owner readiness and `Degraded` capacity reporting;
+- unresolved-reference Doctor findings; and
+- authoritative canary selection with explicit rollback.
 
-Plugins cannot claim core namespaces or register methods for another plugin.
-Unknown provider IDs, methods, versions, or permissions default deny.
+Exec approvals and Teams remain separate Area 1 adoption tracks. They register
+in later immutable versions of the same `lobster-host` bundle and use the same
+owner-selection, readiness, Hosting Profile, Status, Doctor, authority, and
+rollback model.
 
-Provider permissions are distinct from operator scopes, for example:
+## Host Status And Readiness
 
-```text
-host.egress.fetch
-host.secrets.resolve
-host.publication.publish
-host.telemetry.emit
-```
+This RFC reuses Hosting Profiles rather than introducing a second readiness
+system.
 
-### Provider selection and overload
+Every selected Area 1 attachment and Area 2 capability publishes trusted,
+owner-defined readiness evidence. Criteria are advisory by default. A built-in
+or additive namespaced Hosting Profile promotes the criteria required for that
+deployment.
 
-For each provider ID and hosted generation, Gateway selects at most one active
-route unless that provider descriptor explicitly defines a core-owned routing
-mode. V1 uses deterministic single-route selection; providers do not load
-balance themselves by racing responses. A newly admitted route supersedes the
-old route atomically, and pending calls fail with `ProviderRouteChanged` rather
-than being replayed implicitly.
-
-Each descriptor defines maximum in-flight calls, request/result byte limits,
-and a bounded queue policy. When the active route is absent, saturated, stale,
-or slow, Gateway returns stable `ProviderUnavailable`, `ProviderOverloaded`,
-`ProviderStale`, or `ProviderTimedOut` results. It does not allow unbounded
-memory growth or let one provider starve Gateway control traffic. Retry remains
-the caller's decision and is permitted only for descriptor-declared idempotent
-methods using the same idempotency key.
-
-### Invocation protocol
-
-Gateway emits a host invocation event equivalent to:
-
-```json
+```jsonc
 {
-  "id": "request-uuid",
-  "provider": "host.secrets.v1",
-  "method": "resolve",
-  "params": {},
-  "deadlineMs": 30000,
-  "idempotencyKey": "...",
-  "subject": {
-    "agentId": "agent-1",
-    "sessionKey": "..."
+  "hosting": {
+    "profile": "lobster/managed",
+    "profiles": {
+      "lobster/managed": {
+        "extends": "reverse-proxy",
+        "requiredCriteria": [
+          "channel.msteams.endpoint",
+          "provider.request.policy",
+          "provider.request.dispatcher"
+        ],
+        "advisoryCriteria": [
+          "telemetry.lobster"
+        ]
+      }
+    }
   }
 }
 ```
 
-The provider returns through a host-provider-only result method:
+The profile declares required outcomes. It does not duplicate Channel,
+provider-request, secret, publication, or telemetry configuration.
 
-```json
-{
-  "id": "request-uuid",
-  "ok": true,
-  "payload": {}
-}
+Readiness has two related evidence levels:
+
+1. **bundle evidence**: the host bundle is loaded, compatible, authenticated,
+   connected where needed, and current; and
+2. **owner binding evidence**: the owner config references the implementation
+   correctly and the resulting binding is usable.
+
+Hosting Profiles should normally require the end-to-end owner condition. Bundle
+conditions remain useful shared root-cause evidence.
+
+Readiness is a fast, bounded, non-mutating admission decision. Status exposes a
+richer structured inventory:
+
+```text
+host integration bundle and version
+semantic owner
+attachment or interface/version
+desired and resolved implementation ID
+carrier
+provider instance
+owner generation and binding/carrier incarnation
+required/optional
+desired/effective/observed state
+structured conditions
+limits and in-flight state
+last transition
+configuration and policy provenance
+migration authority
 ```
 
-Request subject context is derived from authenticated OpenClaw runtime state.
-The provider cannot choose tenant/user routing by echoing display fields.
+Doctor consumes the same owner facts to produce detailed findings for
+unresolved references, disabled registrations, incompatible versions, missing
+credentials, policy conflicts, and stale or repeatedly reconnecting bindings.
+Readiness messages remain concise and safely redacted; Doctor may point to
+specific config paths and suggested repairs.
 
-The first version follows `node.invoke` lifecycle semantics:
+## Conformance
 
-- timeout resolves the Gateway waiter with a stable timeout result;
-- disconnect fails pending requests;
-- connection/generation change fails dispatch;
-- late results are ignored and audited;
-- retries occur only where the provider descriptor defines idempotency.
+Shared fixtures must prove:
 
-Timeout does not claim to stop remote work. Explicit remote cancellation is a
-future protocol extension.
-
-### SDK shape
-
-The existing client transport remains compatible. A ClawBus-capable host client
-adds reverse request handling and typed streams; host-provider registration is
-one specialization:
-
-```ts
-interface ClawBusSession extends OpenClawTransport {
-  hostRequests(): AsyncIterable<OpenClawHostRequest>;
-  respond(result: OpenClawHostResult): Promise<void>;
-  openStream(request: OpenClawStreamRequest): Promise<OpenClawStream>;
-  registerProvider(provider: HostProvider): Disposable;
-}
-```
-
-The concrete API should align with current SDK registration and event-loop
-patterns. Non-TypeScript implementations consume the same published Gateway
-schemas and conformance fixtures.
-
-### Streaming extension
-
-The unary foundation intentionally does not solve large HTTP bodies,
-AgentHarness streams, or publication streams. A later extension must define:
-
-- stream open/accept/reject;
-- ordering and sequence behavior;
-- credit/backpressure and maximum buffered data;
-- cancellation and terminal acknowledgement;
-- half-close semantics;
-- disconnect/reconnect and non-resumable versus resumable behavior.
-
-AgentHarness remains the owner of execution payload semantics even if it later
-uses the transport's stream facility.
-
-### Conformance
-
-Reusable tests should prove:
-
-- role and method default-deny behavior;
-- credential audience, expiry, proof of possession, and provider grants;
-- declaration/grant/config intersection;
+- interface schema and version validation;
+- local and hosted semantic equivalence;
+- permission and subject derivation;
+- credential audience, expiry, and proof of possession;
 - generation supersession and stale-result rejection;
-- request/result correlation and payload validation;
+- correlation and payload validation;
 - deadline, disconnect, overload, and late-result behavior;
-- namespace isolation for plugins;
-- redaction and audit events;
+- idempotency-key behavior where declared;
+- redaction and audit output;
+- independent queue isolation; and
 - compatibility with a non-TypeScript provider implementation.
-- deterministic route supersession and no implicit replay;
-- in-flight, payload, and queue bounds under a slow or disconnected provider;
-- duplicate idempotency-key behavior for methods declared idempotent;
-- Gateway control-plane responsiveness while provider traffic is saturated.
 
-### ProxyPipe migration and deletion gate
+Area 1 conformance additionally proves:
 
-Private protocols migrate by semantic frame family, not by tunneling their
-existing envelopes through `host.invoke`. For each ProxyPipe family the host
-must record its OpenClaw owner and disposition:
+- approval replay/live dedupe, expiry, idempotent retry, and conflicting
+  resolution rejection;
+- Channel endpoint authentication, owner identity, duplicate delivery,
+  acknowledgement classification, and unconfirmed timeout behavior;
+- provider traffic deny, route selection, conflict, and no-weaker-fallback;
+- stale owner generations cannot become authoritative;
+- desired, effective, and observed status remain distinguishable; and
+- side-effecting flows carry binding ID, owner generation, owner operation ID,
+  and host audit correlation.
 
-- host service calls map to a named provider and typed method;
-- user/channel messages remain Channels;
-- approvals remain existing Gateway approval APIs;
-- remote execution streams remain AgentHarness;
-- lifecycle and continuity results remain their owning lifecycle/state
-  contracts; and
-- product-only operations remain host or plugin features.
+Bundle and Hosting Profiles conformance additionally proves:
 
-A frame family may be deleted after the replacement provider/API passes shared
-conformance, generation rollover, disconnect, timeout, and mixed-version tests
-against the minimum supported OpenClaw release. The host must not keep a
-permanent dual path. Any temporary fallback has an owner, telemetry proving
-usage, an expiry release, and a removal change.
+- one central registration can supply several independently owned contracts;
+- owner config references resolve only compatible registered implementations;
+- missing or disabled registrations fail explicitly;
+- owner criteria are advisory unless a named profile requires them;
+- absent, stale, or `Unknown` required criteria keep the workload non-ready;
+- bundle readiness cannot override failed owner binding readiness;
+- readiness, status, and Doctor derive from consistent owner evidence; and
+- disabling the bundle makes every referenced binding unavailable without
+  direct fallback.
 
-### Implementation sequence
+Transport conformance alone is insufficient. The same interface-level accepted
+result and structured failure must pass against every supported binding.
 
-1. Define the ClawBus host session, capability catalog, role/admission model,
-   and shared unary reverse request/result path. Preserve existing Gateway and
-   `node.invoke` wire behavior.
-2. Project one existing canonical family, such as approvals or lifecycle, over
-   the same session without copying its schema.
-3. Add one bounded portable host provider and a non-TypeScript conformance
-   adapter.
-4. Add typed streaming after AgentHarness or bounded brokered egress supplies
-   the concrete ordering, backpressure, cancellation, and terminal semantics.
+## ProxyPipe Migration
 
-Approvals migrate through existing Gateway APIs and are not implementation
-prerequisites for Duplex Transport.
+Every ProxyPipe frame family first maps to its canonical owner:
+
+| ProxyPipe family | Canonical target |
+| --- | --- |
+| Brokered provider egress | Provider request transport/dispatcher binding |
+| Secret lookup, if added | Existing SecretRef provider interface |
+| Teams ingress and acknowledgement | Channel endpoint attachment |
+| Approvals and pairing | Existing Gateway methods and events |
+| AgentHarness frames | AgentHarness protocol and binding |
+| Lifecycle control | Gateway lifecycle plus continuity contracts |
+| Publication | Runtime State Continuity publication interface |
+| Product services | Owning plugin or Lobster product API |
+
+A ProxyPipe adapter may temporarily carry several of these bindings over one
+connection. It must not expose its private frame union as the canonical
+interface.
+
+The target Lobster integration is one centrally registered bundle containing
+typed implementation contributions, not one centrally dispatched protocol.
+
+Downstream compatibility may be retired after:
+
+- its replacement interface and binding pass shared conformance;
+- generation rollover, timeout, overload, disconnect, and mixed-version tests
+  pass;
+- the minimum supported OpenClaw release is declared;
+- old-path telemetry shows no required traffic; and
+- the fallback reaches its explicit expiry.
+
+## Implementation Sequence
+
+| Wave | Outcome |
+| --- | --- |
+| 0 | Accept the contract and Hosting Profiles prerequisites |
+| 1 | Add the local dispatcher seam while approvals, Teams, and traffic-policy work proceed in parallel |
+| 2 | Add the network guard profile, credential resolver, and CAPI model adapter |
+| 3 | Add immutable bundle inventory, owner readiness, Status, Doctor, and the reverse-session endpoint |
+| 4 | Prove the complete CAPI vertical through the Lobster bundle |
+| 5 | Adopt Substrate, simple-key providers, Channel, Graph, approvals, and Teams through their semantic owners |
+| 6 | Complete canary rollout and retire downstream compatibility after expiry |
+
+The first proof milestone spans Waves 1-4. The foundational changes remain
+independently useful OpenClaw factorings, but implementation does not stop
+before the full CAPI vertical passes.
+
+Within those waves:
+
+1. define `provider-request-dispatcher/v1` at the existing redirect-disabled
+   exchange and preserve direct local dispatch as the default;
+2. export the fixed network guard profile and local/hosted conformance
+   fixtures;
+3. add origin-scoped credential-slot resolution and the CAPI owner adapter;
+4. register one atomically valid `lobster-host` snapshot;
+5. project bundle, owner, policy, dispatcher, carrier, generation, and
+   migration evidence through Hosting Profiles, Status, and Doctor;
+6. implement the provider-dispatch-only reverse carrier with bounded streams,
+   independent flow control, generation fencing, and dispatch certainty;
+7. run the complete local and hosted CAPI proof with traffic-policy
+   intersection, canary authority, and rollback;
+8. add approvals and Teams to later versioned bundle snapshots while retaining
+   their canonical Gateway and Channel paths;
+9. migrate remaining providers only after the CAPI proof; and
+10. retire each downstream compatibility family only after parity, telemetry,
+    rollback, and mixed-version expiry gates pass.
+
+A shared carrier may be proposed later only if a second capability proves that
+it removes more complexity than it adds.
 
 ## Rationale
 
-### Why not extend a private reverse pipe?
+### Why not extend `OpenClawTransport`?
 
-A private pipe can remain a physical implementation, but its payloads should
-implement OpenClaw-owned provider contracts. Otherwise each host invents
-different semantics and release compatibility.
+It exists so applications can control and observe OpenClaw through Gateway.
+Runtime host capabilities have different callers, lifecycle, permissions, and
+failure semantics. Combining them would make one interface serve both sides of
+the isolation boundary.
 
-### Why not use `node.invoke` directly?
+### Why not make Gateway the provider registry?
 
-Its invocation mechanics fit, but its public trust model does not. Treating
-infrastructure as a paired device imports node wake, command approval, device
-revocation, and local-machine policy into host services.
+Gateway may be a useful carrier, especially where a reverse connection already
+exists. Carrier reuse does not prove semantic ownership. Local and sidecar
+bindings must remain possible without implementing Gateway.
 
-### Why a new role rather than operator scopes?
+### Why not define one generic host API?
 
-Operator scopes authorize a client to control OpenClaw. Provider permissions
-authorize OpenClaw to call a service. Keeping them separate limits compromise
-and makes audit intent explicit.
+Secrets, egress, publication, telemetry, Channels, and AgentHarness have
+different authority, bounds, lifecycle, and conformance. A generic method
+registry recreates ProxyPipe's central ownership problem.
 
-### Why unary first?
+### Why does OpenClaw still need host integration support?
 
-Unary invocation is already proven by `node.invoke` and can be bounded and
-conformed independently. Designing streaming without a selected consumer would
-inflate the first change and risk an under-specified protocol.
+Hosts otherwise rediscover where to attach Gateway clients, Channel endpoints,
+provider network policy, lifecycle control, identity, readiness, and audit.
+OpenClaw should publish and conform those integration points even though they
+remain separately owned.
 
-### Why provider descriptors rather than arbitrary handlers?
+### Why not keep one physical connection?
 
-Descriptors give OpenClaw stable schemas, permissions, bounds, versioning, and
-release tests. Arbitrary callbacks recreate the unbounded private pipe problem.
+Current evidence does not justify a multipurpose V1 connection. Approvals use
+Gateway, Teams ingress uses a Channel endpoint, and traffic policy often uses a
+proxy or service mesh. Only hosted provider dispatch clearly requires a reverse
+stream when direct networking is unavailable.
 
-## Unresolved questions
+The first reverse carrier is therefore provider-dispatch-specific. Shared
+carrier extraction remains possible after a second capability demonstrates
+real duplicated operational cost.
 
-- What should the final role, client ID, event, and method names be?
-- Should host-provider credentials be issued by Gateway, loaded from managed
-  config, or support both local and external issuers?
-- What minimum host binding belongs in core for single-tenant deployments?
-- Which first unary provider best proves portability without requiring
-  streaming or duplicating an existing plugin/provider API?
-- Should provider descriptors be core-only initially or exposed to plugins in
-  the first implementation?
-- How should a Gateway advertise required provider availability to Hosting
-  Profiles and readiness conditions?
-- Which audit fields are stable public contract versus implementation detail?
-- Should explicit cancellation precede streaming, or be designed with the
-  stream lifecycle?
+### Where should the ease of ProxyPipe survive?
+
+In one centrally registered host integration bundle, typed references from
+owner config, one named Hosting Profile contract, and one effective
+readiness/status/Doctor view. It should not survive as one private semantic
+envelope or global activation transaction.
+
+## Unresolved Questions
+
+- Which existing plugin manifest and registry surfaces can carry the host
+  integration bundle, and which owner-specific contribution types are missing?
+- Should the provider-dispatch reverse session reuse the Gateway WebSocket
+  protocol, a dedicated subprotocol on the Gateway listener, or another
+  bounded stream?
+- What exact fixed-shape network guard profile should be public and versioned?
+- Which existing owner registries should receive the first provider-adapter and
+  credential-slot-resolver contributions?
+- Which binding details belong in status while readiness remains a compact
+  admission decision?
+- Which transport audit fields are stable public contract?
+- Which downstream compatibility code and tests become redundant after the
+  first adoption slice?
