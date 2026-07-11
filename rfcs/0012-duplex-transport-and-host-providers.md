@@ -274,6 +274,23 @@ host.publication.publish
 host.telemetry.emit
 ```
 
+### Provider selection and overload
+
+For each provider ID and hosted generation, Gateway selects at most one active
+route unless that provider descriptor explicitly defines a core-owned routing
+mode. V1 uses deterministic single-route selection; providers do not load
+balance themselves by racing responses. A newly admitted route supersedes the
+old route atomically, and pending calls fail with `ProviderRouteChanged` rather
+than being replayed implicitly.
+
+Each descriptor defines maximum in-flight calls, request/result byte limits,
+and a bounded queue policy. When the active route is absent, saturated, stale,
+or slow, Gateway returns stable `ProviderUnavailable`, `ProviderOverloaded`,
+`ProviderStale`, or `ProviderTimedOut` results. It does not allow unbounded
+memory growth or let one provider starve Gateway control traffic. Retry remains
+the caller's decision and is permitted only for descriptor-declared idempotent
+methods using the same idempotency key.
+
 ### Invocation protocol
 
 Gateway emits a host invocation event equivalent to:
@@ -360,6 +377,30 @@ Reusable tests should prove:
 - namespace isolation for plugins;
 - redaction and audit events;
 - compatibility with a non-TypeScript provider implementation.
+- deterministic route supersession and no implicit replay;
+- in-flight, payload, and queue bounds under a slow or disconnected provider;
+- duplicate idempotency-key behavior for methods declared idempotent;
+- Gateway control-plane responsiveness while provider traffic is saturated.
+
+### ProxyPipe migration and deletion gate
+
+Private protocols migrate by semantic frame family, not by tunneling their
+existing envelopes through `host.invoke`. For each ProxyPipe family the host
+must record its OpenClaw owner and disposition:
+
+- host service calls map to a named provider and typed method;
+- user/channel messages remain Channels;
+- approvals remain existing Gateway approval APIs;
+- remote execution streams remain AgentHarness;
+- lifecycle and continuity results remain their owning lifecycle/state
+  contracts; and
+- product-only operations remain host or plugin features.
+
+A frame family may be deleted after the replacement provider/API passes shared
+conformance, generation rollover, disconnect, timeout, and mixed-version tests
+against the minimum supported OpenClaw release. The host must not keep a
+permanent dual path. Any temporary fallback has an owner, telemetry proving
+usage, an expiry release, and a removal change.
 
 ### Implementation sequence
 
