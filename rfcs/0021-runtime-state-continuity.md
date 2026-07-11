@@ -97,6 +97,32 @@ This is fragile in both directions. Lobster becomes coupled to OpenClaw
 internals, while OpenClaw cannot describe or test the recovery guarantee that a
 host advertises on its behalf.
 
+### Why Lobster cannot provide the guarantee from outside
+
+This is an authority problem, not a preference for where code lives. A host can
+observe files, processes, and lifecycle signals, but it cannot authoritatively
+derive OpenClaw semantics from them:
+
+| Required fact | Why Lobster cannot infer it safely | Required OpenClaw primitive |
+| --- | --- | --- |
+| Complete recovery state | Paths do not say which databases, files, plugin state, identity, or reconstructed data are required for this release. | Enumerable state-surface inventory and treatment. |
+| Valid recovery point | Filesystem quietness does not prove SQLite, sessions, workspaces, and other owners each produced a valid capture. | Owner-native capture and one exact manifest. |
+| Safe final handoff | Process exit does not prove all acknowledged work drained, writable owners stopped, or shutdown warnings preserved the handoff guarantee. | Admission closure, blockers, clean-shutdown result, and final closed-state capture contract. |
+| Compatible restore | A host cannot know OpenClaw schema, plugin, identity, dependency, and restore-order rules by inspecting artifacts. | Versioned compatibility and ordered restore validation. |
+| Ready restored runtime | A running process does not prove restore, dependency resolution, generation fencing, and cron reconciliation completed. | Restore-gated OpenClaw readiness and status. |
+
+For Lobster to simulate these facts, it must maintain a shadow model of
+OpenClaw's stores, writers, shutdown sequence, schemas, and startup ordering.
+That model will either miss state and risk silent loss, or freeze OpenClaw
+internals because every change becomes a host compatibility event. More private
+Lobster coordination cannot close this gap; it only makes the duplicate model
+larger.
+
+The smallest correct boundary is for OpenClaw to commit to the semantic
+primitives and for Lobster to consume them. That does not move storage,
+placement, credentials, or compute policy into OpenClaw. It places each claim
+with the only owner that can prove it.
+
 ### The proposed ownership boundary
 
 OpenClaw should define the continuity levels because only OpenClaw and its
