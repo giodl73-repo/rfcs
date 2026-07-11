@@ -6,7 +6,7 @@ created: 2026-07-10
 last_updated: 2026-07-11
 status: draft
 issue:
-rfc_pr: https://github.com/giodl73-repo/rfcs/pull/3
+rfc_pr: https://github.com/giodl73-repo/rfcs/pull/5
 ---
 
 # Proposal: Runtime State Continuity
