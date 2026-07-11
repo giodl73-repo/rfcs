@@ -116,6 +116,83 @@ The diagram shows the four architectural areas:
 4. **Carrier options:** each binding uses its native carrier; only hosted
    provider dispatch requires the narrow reverse carrier in V1.
 
+### V1 scope of Area 1 and Area 2
+
+Area 1 and Area 2 deliberately solve different halves of hosted integration.
+Area 1 defines where a host attaches to OpenClaw-owned traffic and operations.
+Area 2 defines explicit capabilities that OpenClaw consumes from a selected
+binding.
+
+#### Area 1: host integration plane
+
+| Attachment kind | What V1 standardizes | Canonical owner | Initial Lobster migration |
+| --- | --- | --- | --- |
+| Gateway client | Required methods/events/scopes, compatibility, identity, generation, readiness, status, and migration authority | Gateway | Exec approval presentation/resolution, pairing, observation, administration, suspend, restart, and lifecycle orchestration use canonical Gateway surfaces |
+| Channel endpoint | Route identity, trusted-forwarder authentication, limits, acknowledgement classes, idempotency, generation, readiness, and status | Channel | Teams delivery and acknowledgement move from private frames to a Channel-owned endpoint |
+| Traffic policy | Compiled deny/narrow/route decisions, proxy/TLS/private-route constraints, provenance, conflict behavior, and no-weaker-fallback | Provider request transport | Lobster enterprise egress policy compiles into the existing guarded provider-request path |
+
+Area 1 also defines the common binding envelope used to inspect these
+attachments:
+
+- desired and effective implementation;
+- semantic owner and interface version;
+- authenticated principal;
+- owner generation and binding incarnation;
+- required or advisory readiness posture;
+- configuration and policy provenance;
+- authoritative, shadow, or disabled migration mode; and
+- structured failure and reload disposition.
+
+Area 1 does **not** define one callback schema. Gateway clients continue to use
+Gateway methods/events. Channel endpoints continue to use Channel-owned
+payloads and acknowledgement rules. Traffic policy produces a compiled
+decision rather than becoming a remote per-request policy RPC.
+
+#### Area 2: host capability providers
+
+| Capability family | What V1 standardizes | Canonical owner | Initial Lobster migration |
+| --- | --- | --- | --- |
+| Provider adapter | Provider-specific URL, query, bounded body preparation, non-secret headers, credential-slot declaration, and response interpretation | Model, Channel, web, or other provider owner | CAPI, Substrate, WebIQ, Anthropic, ACF, and Graph preparation move out of the private forwarding handler |
+| Credential-slot resolver | Declared secret value, fixed placement, allowed origins, expiry/audience rules, redaction, and readiness | Credential or identity owner selected by the consuming owner | CAPI/Substrate tokens, API keys, Entra OBO, and agentic-user credentials become independently registered resolvers |
+| Traffic/network policy | Intersection of OpenClaw semantic authority with host route restrictions | Provider request transport; shared handoff with Area 1 | `lobster/enterprise-egress` authorizes or narrows the prepared request |
+| Provider-request dispatcher | One redirect-disabled HTTP exchange, physical DNS resolution, guard-profile enforcement, request/response streaming, cancellation, overload, and dispatch certainty | Provider request transport | ProxyPipe brokered provider egress moves to local or `lobster/egress` bindings |
+| Secret provider | Existing SecretRef-compatible hosted binding when env/file/exec are insufficient | Secrets | `lobster/vault` is a later capability proof, not the first deletion-bearing slice |
+| Publication provider | Durable publication after continuity defines checkpoint and receipt semantics | Runtime State Continuity | `lobster/workspace` remains blocked on the continuity contract |
+| Telemetry provider | Export through a host-owned sink with portable failures and redaction | Telemetry | `lobster/telemetry` is registered independently from request dispatch |
+
+Area 2 does **not** absorb Gateway approvals, Channel ingress, lifecycle,
+AgentHarness, arbitrary product services, or a universal
+`{ interface, operation, payload }` host invocation API.
+
+#### Area 1 to Area 2 provider-request handoff
+
+The provider path crosses the two areas at one explicit boundary:
+
+```text
+model/Channel/web owner adapter
+  prepares URL, body, non-secret headers, response policy, and credential slots
+        |
+        v
+Area 1 traffic policy
+  denies, narrows, or selects an authorized route
+        |
+        v
+credential-slot resolver
+  materializes only the declared secret value for allowed origins
+        |
+        v
+Area 2 provider-request dispatcher
+  performs one guarded, redirect-disabled physical exchange
+        |
+        v
+semantic owner
+  handles redirects, retries, provider status, and response interpretation
+```
+
+No lower layer may widen authority granted above it. The effective request is
+the intersection of owner semantics, owner configuration, credential grant,
+traffic policy, network guard, and current generations.
+
 Host provider interfaces describe **what capability OpenClaw consumes**.
 Bindings describe **where and how the implementation runs**. A local OpenClaw
 installation may use in-process, environment, file, executable, or direct
