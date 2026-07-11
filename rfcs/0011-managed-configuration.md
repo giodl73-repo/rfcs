@@ -97,6 +97,18 @@ Arrays are whole-field values unless a specific built-in bounded rule applies.
 Objects are traversed according to the normal schema; declaring one child does
 not implicitly claim unrelated siblings.
 
+The managed source is selected at process startup through one explicit core
+loading mechanism, such as a config loader option or documented environment
+reference. The source reference identifies one managed document, its immutable
+source identity, and an optional expected digest; it is not another arbitrary
+overlay. Includes, environment interpolation, and secret references follow
+existing OpenClaw parsing rules and gain no new precedence merely because they
+originated in the managed document.
+
+The runtime reports source identities rather than host paths where paths would
+leak deployment details. A host can prove which inputs produced an effective
+snapshot without making its filesystem layout part of the contract.
+
 ### Authority rules
 
 #### Exact authority
@@ -209,6 +221,17 @@ new effective snapshot passes admission. Invalid managed composition does not
 partially activate. At startup, failure remains visible and prevents readiness
 when the runtime cannot safely operate under the declared host boundary.
 
+Every accepted composition receives an effective-config generation and stable
+identity. Reload is transactional: OpenClaw reads and validates both source
+generations, composes and validates the candidate, classifies reload/restart
+effects, and atomically publishes one new effective snapshot. Any failure
+leaves the previous active generation intact.
+
+Concurrent operator writes compare against both the operator source generation
+and managed-boundary identity used for validation. A stale write fails with a
+structured conflict; it cannot overwrite a newer operator document or activate
+against a changed managed boundary.
+
 ### Chaining
 
 The implementation should avoid hard-coding a merge engine that can never
@@ -243,6 +266,11 @@ Release tests should cover:
 - invalid-startup readiness/status behavior;
 - compatibility when a newer managed document references an unsupported field
   or comparator.
+- transactional reload and preservation of the previous effective generation;
+- stale operator-write rejection across managed-boundary rotation;
+- source digest mismatch and source-identity redaction;
+- semantic equivalence between direct effective config and composed managed
+  plus operator inputs.
 
 Hosting Profiles may declare Managed Configuration as an optional capability,
 but profiles do not own its semantics.
@@ -255,6 +283,17 @@ Keep the initial stack small:
    structured findings, provenance, identity, and focused docs/tests.
 2. Add the first closed set of schema-owned bounded comparators with shared
    tests and optional Policy-plugin reuse.
+
+### Host migration and deletion gate
+
+The feature succeeds only when a host can remove private config machinery. For
+each migration, conformance compares the old generated effective config with
+the OpenClaw-composed effective snapshot over representative deployments, then
+proves conflict, reload, and operator-write behavior. Once a minimum OpenClaw
+release passes that proof, the host removes the corresponding fragment
+generator, environment projection, stale-value cleanup, and exact config-blob
+tests. Temporary dual generation is diagnostic only and must have an owner,
+expiry release, and removal change.
 
 ## Rationale
 
