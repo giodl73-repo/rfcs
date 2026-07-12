@@ -1189,8 +1189,20 @@ Continuity then lands:
    documented rollback expiry.
 
 Each PR reuses the interface, binding, readiness, provenance, migration, and
-carrier patterns established by Hosted Integration. The state-continuity stack
-does not begin until the Hosted Integration foundation it consumes is stable.
+carrier patterns established by Hosted Integration.
+
+Implementation branches start from the latest OpenClaw `main` by default.
+Continuity owner modeling and the local Archived checkpoint/restore path may
+begin before Hosted Integration lands because they do not require a hosted
+binding, host generation authority, or reverse carrier. They rebase onto
+`main` as prerequisite work lands.
+
+Hosted publication and the Portable/Elastic stages must not merge until the
+exact Hosted Integration seams they consume are stable on `main`. A branch may
+temporarily stack on an unmerged prerequisite only when a direct compile-time
+or test dependency makes independent work impossible; it should return to a
+`main` base before normal review. Continuity must not copy provisional Hosted
+Integration types into a compatibility layer merely to avoid that dependency.
 
 ## Rationale
 
