@@ -1204,6 +1204,14 @@ or test dependency makes independent work impossible; it should return to a
 `main` base before normal review. Continuity must not copy provisional Hosted
 Integration types into a compatibility layer merely to avoid that dependency.
 
+Validation starts immediately against current `main`: complete the state
+inventory, trace clean-shutdown ordering, exercise existing local
+backup/snapshot and restore behavior, measure capture cost, inject corrupt and
+incompatible artifacts, prove credential exclusion, baseline Lobster's durable
+Teams/cron/API wake behavior, and inventory the private paths targeted for
+deletion. These results may revise the first two PRs and the RFC before hosted
+wiring is available.
+
 ## Rationale
 
 ### Why not use readiness?
