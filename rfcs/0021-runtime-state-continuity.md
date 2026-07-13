@@ -455,6 +455,20 @@ journal-proven output. Unattributed roots, foreign bytes, missing or conflicting
 journal evidence, or a committed hold without its exact receipt quarantine and
 never admit startup.
 
+Managed execution requires the materialization receipt to bind one
+deterministically ordered `{ archivePath, sha256, size, executable }` entry for
+every copied payload file. Older receipts remain valid for offline inspection
+and restore preview but are execution-ineligible. The restore plan binds that
+complete inventory and assigns every file to exactly one component, avoiding
+recursive copying of overlapping state, config, and workspace roots.
+
+Target observation is separate from deterministic plan identity. Initial
+execution requires every publication root to be absent. An identical retry
+reproduces the same plan while the journal classifies an existing root as an
+exact same-restore claim or as foreign evidence that must quarantine. Current
+target presence must not make a safely interrupted restore produce a different
+plan identity.
+
 Directory-entry sync support is a platform capability, not an unstated safety
 assumption. Implementations sync files and directories where supported. If a
 platform crash loses or reorders journal, marker, or target entries, the same
