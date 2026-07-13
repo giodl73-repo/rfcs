@@ -468,6 +468,23 @@ lifecycle CAS and invokes its existing restored-start fan-in. A command launch
 or pre-claim failure after publication starts remains held for same-identity
 retry or quarantine; it never reopens ordinary startup.
 
+The host may need a physical operation carrier to the worker that owns the
+mounted state. That carrier is a strict pre-Gateway operation, not an authority
+API or generic command channel. The host resolves and allocates the exact
+worker without starting Gateway, marks publication started, and sends a bounded
+versioned request containing the opaque hold context plus archive,
+materialization, expected-plan, authorized-root, and journal identities. The
+worker adapter invokes a fixed OpenClaw executor with that request on stdin and
+returns one typed result. It never interprets archive, target, journal, or
+receipt semantics.
+
+Unknown post-publication outcomes remain held for replay of only the identical
+request. OpenClaw classifies consistent interruption as same-restore retry and
+contradictory or foreign evidence as quarantine. Only an exact successful
+receipt can commit the hold. A lost commit response is reconciled by inspecting
+the lifecycle record; a lost restored-start response reuses the retained E4
+admission rather than rerunning restore.
+
 ### Runtime impact and fail modes
 
 Recurring capture is off the ordinary message, agent, and tool-call hot paths.
