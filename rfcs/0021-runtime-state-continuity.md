@@ -431,15 +431,19 @@ Restore uses the same host lifecycle owner and generation model:
 
 ```text
 runnable(owner generation)
-  -> restore-held(owner generation, restore identity)
+  -> restore-held(owner generation, restore identity, publication=false)
+  -> restore-held(owner generation, restore identity,
+                  publication=true, execution incarnation)
   -> restore-committed(owner generation, committed receipt identity)
   -> one admitted restored startup
   -> runnable(new runtime incarnation)
 ```
 
 The hold has no independent renewal protocol or TTL. Before any target claim,
-the holder may cancel back to `runnable`. After the first claim, interruption
-remains held and can only resume the same restore identity or enter quarantine.
+the holder may cancel back to `runnable`. Publication start durably binds the
+allocated execution incarnation before the first claim. After the first claim,
+interruption remains held and can only resume the same restore identity on that
+same execution incarnation or enter quarantine.
 
 Restore publication is forward-only claim-and-assemble, not an atomic rename
 or transactional multi-root switch. After the hold is acquired, OpenClaw
@@ -484,6 +488,24 @@ contradictory or foreign evidence as quarantine. Only an exact successful
 receipt can commit the hold. A lost commit response is reconciled by inspecting
 the lifecycle record; a lost restored-start response reuses the retained E4
 admission rather than rerunning restore.
+
+Replay is limited to the same allocated execution incarnation. The host obtains
+an adapter boot attestation during allocation and binds an opaque identity
+derived from the logical route, allocated-worker evidence, and adapter boot
+when it marks publication started. The restore operation must verify that
+identity before mutation. A transport-unknown result may retry only after the
+same incarnation answers; adapter restart, stale-worker response, or worker
+replacement quarantines.
+
+This conservative boundary is required because current Lobster persistence
+does not prove one replacement-durable identity for the restore source,
+journal, generated config, live SQLite state, and every target. Git rehydrates
+the OpenClaw data worktree but intentionally ignores credentials, generated
+config, live databases and sidecars, device state, and other ephemeral paths.
+`workerinstancename` is only a short-lived routing hint, not ownership or
+filesystem continuity evidence. Future replacement resume requires an explicit
+durable-source and all-target checkpoint proof; it is not inferred from logical
+Plex routing.
 
 ### Runtime impact and fail modes
 
