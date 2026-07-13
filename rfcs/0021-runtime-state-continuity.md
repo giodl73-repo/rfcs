@@ -491,11 +491,20 @@ admission rather than rerunning restore.
 
 Replay is limited to the same allocated execution incarnation. The host obtains
 an adapter boot attestation during allocation and binds an opaque identity
-derived from the logical route, allocated-worker evidence, and adapter boot
-when it marks publication started. The restore operation must verify that
+derived from the stable owner ID and adapter boot when it marks publication
+started. The advisory `workerinstancename` hint is not part of the identity.
+The restore operation must verify that
 identity before mutation. A transport-unknown result may retry only after the
 same incarnation answers; adapter restart, stale-worker response, or worker
 replacement quarantines.
+
+Restore allocation requires a strict attestation response even if it reuses the
+ordinary allocate endpoint. Existing allocation/start callers may continue to
+treat successful response bodies as best-effort compatibility hints, but the
+restore path rejects a missing, unreadable, malformed, unknown-version, or
+owner-mismatched attestation before publication starts. The adapter derives the
+execution identity from a versioned hash of the canonical owner ID and its
+process boot UUID; Lobster recomputes it before storing it in the hold.
 
 This conservative boundary is required because current Lobster persistence
 does not prove one replacement-durable identity for the restore source,
