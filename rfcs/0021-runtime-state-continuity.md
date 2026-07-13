@@ -3,7 +3,7 @@ title: Runtime State Continuity
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-11
+last_updated: 2026-07-13
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/5
@@ -255,6 +255,8 @@ This RFC owns:
 - recovery manifests, receipts, lineage, retention, and restore semantics;
 - clean shutdown, final handoff, hibernate, wake, and restored-startup
   semantics;
+- the lifecycle-owner restore-hold transition that fences launcher admission
+  while original paths are claimed and assembled;
 - CAPE guarantees and continuity policy;
 - continuity-specific readiness evidence and conformance; and
 - the requirements an existing Channel, secret, workspace, identity, or
@@ -315,7 +317,7 @@ invariants and observable guarantees hold.
 | What loss guarantees apply? | **Core invariant:** planned hibernation adds no loss beyond a successful conventional clean shutdown and captures the resulting persisted state. **Profile policy:** forced termination restores the latest host-accepted recovery point with a visible time-based RPO. | This RFC transports existing state; it does not strengthen the consistency or acknowledgement semantics of the stores being captured. | A separate storage RFC defines stronger aggregate consistency or durability semantics. |
 | Who initiates hibernation? | **Profile policy:** the host proposes hibernation based on idle and cost policy. OpenClaw may refuse because of active work, unsafe state, or an imminent deadline. | Compute policy belongs to the host, while only OpenClaw can determine semantic quiescence. | OpenClaw gains a product-level reason to request sleep independent of host policy. |
 | How is shutdown raced against newly arriving work? | **Core invariant:** sleep authorization is granted only when no wake work is pending and is revoked by new work. | Without an atomic host decision, a runtime can publish a final checkpoint and be destroyed while work is already queued for it. | Host ingress can prove an equivalent atomic handoff without explicit authorization state. |
-| Are generation and sleep authority separate leases? | **Implementation hypothesis:** no. One host-issued lifecycle record carries a monotonic generation and transitions through `active`, `draining`, and revocable `sleep-authorized` states. After destruction, the durable checkpoint/wake record persists without a process lease. | One authority avoids races and contradictory ownership between independently renewed generation and sleep leases. | The host cannot make work admission and sleep authorization conditional on one durable lifecycle record. |
+| Are generation, sleep, and restore authority separate leases? | **Implementation hypothesis:** no. One host-issued lifecycle record carries the stable owner generation and transitions through `active`, `draining`, revocable `sleep-authorized`, `restore-held`, and `restore-committed` states. After destruction, the durable checkpoint/wake record persists without a process lease. | One authority avoids races and contradictory ownership between independently renewed generation, sleep, and restore leases. The restore hold extends the Hosted Integration owner lifecycle; it does not create another generation domain. | The host cannot make work admission, sleep authorization, and restore exclusion conditional on one durable lifecycle record. |
 | How is a recovery point published? | **Core invariant:** the host atomically makes one immutable manifest and its earliest wake deadline resumable, then returns a receipt bound to that exact manifest. Components do not independently become the aggregate recovery point. | Partial artifact publication or an unbound wake deadline can produce a checkpoint that restores incompletely or wakes late. | The storage substrate provides an equivalent transactional aggregate over independently published components. |
 | Is one global mutation generation required? | **Core boundary:** no. The manifest records native component consistency identities where they already exist, plus capture time and artifact digests. This RFC does not add mutation participation to existing writers. | OpenClaw currently has global SQLite, per-agent SQLite, file-backed sessions/config, and workspace state without one complete mutation ordering. | A separate storage-consistency RFC introduces and proves a global ordering. |
 
@@ -328,7 +330,7 @@ invariants and observable guarantees hold.
 | Can old and new compute overlap? | **Core invariant:** they may overlap physically, but only one host-issued generation authority may permit mutation and readiness for a logical runtime. | Provisioning retries and slow termination make process overlap unavoidable; correctness requires authority fencing rather than timing assumptions. | The host can prove non-overlap under every retry, partition, and termination failure. |
 | Where is the generation fence enforced? | **Implementation hypothesis:** at host ingress and checkpoint publication, plus OpenClaw root-work admission. V1 does not add a distributed lease check to every local SQLite mutation. | These boundaries prevent stale generations from receiving work or advancing durable lineage while preserving SQLite's local ownership model. | A stale generation can cause an externally visible side effect after those boundaries fence it. |
 | What happens when a running generation loses authority? | **Core invariant:** it fails closed, stops admission, cancels active root work, terminates, and does not publish a final checkpoint. Recovery uses the last host-accepted recovery point. | Authority loss means the process can no longer safely complete side effects or publish a competing lineage. | Active work gains a separately fenced completion protocol that remains safe after generation loss. |
-| How does active generation authority expire? | **Profile policy:** the host configures and renews a bounded TTL. OpenClaw stops admission before expiry and cancels and terminates at expiry. There is no post-expiry mutation or publication grace period. | Hosts need deployment-specific timing, but fencing requires one portable authority boundary. | A non-expiring authority can prove safe reassignment through host failure and network partition. |
+| How does active generation authority expire? | **Profile policy:** while `active`, the host configures and renews a bounded TTL. OpenClaw stops admission before expiry and cancels and terminates at expiry. There is no post-expiry mutation or publication grace period. `restore-held` is deliberately non-expiring: it has no runnable process to renew it, and expiry after partial publication could admit corrupt state. | Hosts need deployment-specific timing for a live process, but restore exclusion must survive coordinator failure until explicit resume or quarantine. | A non-expiring active authority can prove safe reassignment through host failure and network partition, or partial restore can be made safe after automatic hold expiry. |
 
 ### Restore, secrets, and readiness
 
@@ -341,6 +343,7 @@ invariants and observable guarantees hold.
 | How is secret-bearing state handled? | **Core invariant:** host-managed credentials are re-issued or re-resolved and their values do not enter recovery artifacts or manifest metadata. A profile may explicitly capture only non-reissuable runtime-owned identity state required to preserve logical identity, using encrypted runtime-scoped artifacts. | Lobster already projects Graph, proxy/session, and provider credentials at runtime rather than persisting them with the workspace. Blindly copying credentials expands the recovery system's secret boundary. | A required integration cannot re-issue credentials or separate runtime identity from host-managed secrets. |
 | What does Portable require beyond copying state files? | **Core invariant:** the complete restore dependency closure must be satisfiable on fresh compute. Each dependency is captured, re-resolved from an external authority, reconstructed from declared inputs, or reported as a blocking incompatibility. | State bytes are unusable if identity keys, credentials, configuration, plugins, workspace, or compatible runtime support are missing. | OpenClaw adopts one self-contained state format with no external restore dependencies. |
 | May Portable depend on shared host capabilities? | **Core invariant:** yes. The recovery manifest declares logical capability requirements, and the destination Hosting Profile binds them to compatible providers available in its portability domain. | Credentials, identity, artifact storage, workspace access, and generation authority may already be host services shared across compute cells and should not be copied into every checkpoint. | A required capability cannot expose a stable cross-cell contract or destination authorization. |
+| How is restore fenced from launcher restart and wake? | **Core invariant:** the existing host-issued lifecycle record enters a non-expiring `restore-held` state for the stable runtime owner and current owner generation before any original target is created. Every start, restart, wake, health-recovery, warm-up, diagnostic, and autoscaling path rejects while held. Commit binds the exact restore receipt and permits exactly one matching restored startup; it does not merely delete the hold. Unknown authority and stale generations fail closed. | A Gateway process lock cannot stop an adapter, supervisor, scheduler, or replacement container. Lobster's existing proxy-pipe owner lease is advisory, TTL-based, and may fail open on authority uncertainty, so it cannot protect partial restore. Reusing the lifecycle owner and generation follows Hosted Integration without adding a continuity lease service. | A launcher can prove an equivalent atomic stop, restore, and exactly-once restored-start transition across every start path without durable hold state. |
 | How does continuity affect readiness? | **Core invariant:** readiness stays closed until required restore validation and scheduler reconciliation complete. **Implementation hypothesis:** one aggregate continuity readiness provider reports that state while component detail remains in continuity diagnostics. | This retains the readiness provider mental model without creating one readiness condition per artifact or a parallel readiness system. | Operators need independently routable readiness policy for individual continuity components. |
 | Must overdue cron jobs finish before readiness? | **Profile policy:** no. Before readiness, OpenClaw reconciles due state, applies each job's catch-up policy, suppresses completed runs, and durably queues remaining catch-up work. Execution begins under normal scheduling after readiness. | Long-running overdue jobs must not make wake readiness unbounded, but retained ingress cannot begin until due work is reconstructed safely. | Source evidence shows a due job must complete before retained ingress can safely run. |
 
@@ -412,7 +415,7 @@ run inside OpenClaw:
 | Verb | OpenClaw responsibility | Host responsibility, when present |
 | --- | --- | --- |
 | `checkpoint` | Schedule and orchestrate native online capture, validate required state surfaces, produce the exact manifest, and invoke the selected publication binding. The built-in local binding can complete this without a host. | Provide a hosted publication binding that durably accepts and retains the exact manifest according to policy. |
-| `restore` | Select an explicitly requested or policy-compatible immutable point, materialize it, validate integrity and compatibility, reconstruct declared state, reconcile cron, and hold readiness closed until complete. | For automatic replacement, authorize the point, provision the destination, and re-issue external capabilities and credentials. |
+| `restore` | Select an explicitly requested or policy-compatible immutable point, materialize it, validate integrity and compatibility, reconstruct declared state, reconcile cron, and hold readiness closed until complete. | For automatic replacement, authorize the point, provision the destination, acquire and commit the durable restore hold, re-issue external capabilities and credentials, and admit only the matching restored startup. |
 | `hibernate` | Accept a host proposal, close admission, report blockers, drain work, complete clean shutdown, and produce the closed-state handoff result. | Retain new ingress, perform post-exit closed-state capture when required, atomically accept the final point and wake intent, then remove compute. |
 | `wake` | Define the checkpoint-bound semantic deadline and perform restored startup, scheduler reconciliation, and readiness validation after provisioning. | Observe retained ingress or the deadline, allocate one fenced generation, inject capabilities, and withhold retained delivery until OpenClaw is ready. |
 | `sleep` | Report whether current work and owner state permit a host-specific sleep operation. | Suspend or retain the same compute using host-native mechanics. |
@@ -423,6 +426,37 @@ It makes hibernate and wake safe and portable by owning the state transition,
 artifacts, validation, and readiness contract.
 Exact API, CLI, and RPC operation names remain implementation decisions; the
 semantic verbs and ownership split are normative.
+
+Restore uses the same host lifecycle owner and generation model:
+
+```text
+runnable(owner generation)
+  -> restore-held(owner generation, restore identity)
+  -> restore-committed(owner generation, committed receipt identity)
+  -> one admitted restored startup
+  -> runnable(new runtime incarnation)
+```
+
+The hold has no independent renewal protocol or TTL. Before any target claim,
+the holder may cancel back to `runnable`. After the first claim, interruption
+remains held and can only resume the same restore identity or enter quarantine.
+
+Restore publication is forward-only claim-and-assemble, not an atomic rename
+or transactional multi-root switch. After the hold is acquired, OpenClaw
+durably records exact claim intent, exclusively claims each absent outer root,
+assembles and syncs identity-bound files directly into those roots, reverifies
+the complete materialization inventory, and writes the committed receipt before
+the hold can enter `restore-committed`. Same-identity retries may repair only
+journal-proven output. Unattributed roots, foreign bytes, missing or conflicting
+journal evidence, or a committed hold without its exact receipt quarantine and
+never admit startup.
+
+Directory-entry sync support is a platform capability, not an unstated safety
+assumption. Implementations sync files and directories where supported. If a
+platform crash loses or reorders journal, marker, or target entries, the same
+identity checks must either reconstruct from the immutable materialization or
+quarantine. Reduced automatic-resume availability must never become overwrite,
+adoption, rollback, clean-start fallback, or admission with uncertain state.
 
 ### Runtime impact and fail modes
 
@@ -833,14 +867,25 @@ not redefine SQLite snapshot mechanics.
 
 Restore is explicit and ordered:
 
-1. verify checkpoint manifest and artifact integrity;
-2. verify OpenClaw and component schema compatibility;
-3. restore required global/identity state before dependent agent/plugin state;
-4. restore workspaces and component artifacts according to dependencies;
-5. run component validation/migrations;
-6. start Gateway with admission closed;
-7. report the restored checkpoint and component provenance through status;
-8. evaluate readiness before accepting work.
+1. acquire the lifecycle owner's durable restore hold after proving no runnable
+   Gateway incarnation remains;
+2. verify checkpoint manifest and artifact integrity;
+3. verify OpenClaw and component schema compatibility;
+4. restore required global/identity state before dependent agent/plugin state;
+5. restore workspaces and component artifacts according to dependencies;
+6. run component validation/migrations;
+7. commit the exact restore receipt into the held owner generation;
+8. admit exactly one matching restored Gateway startup with admission closed;
+9. report the restored checkpoint and component provenance through status; and
+10. evaluate readiness before accepting work.
+
+Restore does not require a cross-platform atomic directory rename. While the
+launcher hold blocks startup, the restore owner may atomically claim absent
+directory and file roots with the platform's exclusive-create primitive,
+assemble directly behind an identity-bound incomplete marker, and repair only
+partial output proven by the same journal and restore identity. Existing,
+unmarked, or foreign targets fail closed. This is atomic ownership, not atomic
+visibility; the lifecycle hold supplies the visibility boundary.
 
 Portable restore validates the complete dependency closure, not only artifact
 presence:
@@ -1072,7 +1117,7 @@ At minimum, the model distinguishes:
 | planned handoff | active-work blocker, authority conflict/expiry, sleep revocation by new work, invalidating clean-shutdown warning, final capture or publication failure |
 | restore | missing/corrupt artifact, unsupported schema/runtime/plugin, unresolved secret or shared capability, ordering/migration failure, exhausted fallback lineage |
 | wake | wake registration rejection, missed deadline, provisioning failure, unsupported ingress, retained-delivery retry exhaustion |
-| fencing | stale runtime, owner-binding, host-bundle, or carrier identity; late result ignored; authority lost during active work |
+| fencing | stale runtime, owner-binding, host-bundle, carrier, restore, or receipt identity; unknown hold authority; late result ignored; authority lost during active work |
 
 An unconfirmed publication timeout may retry only the same idempotency identity
 and manifest digest. It cannot allocate a new checkpoint ID and infer that the
@@ -1111,6 +1156,9 @@ resulting proven capability set into operator-visible levels.
   complete a newer handoff;
 - restore onto fresh compute uses a new runtime generation and immutable source
   checkpoint;
+- restore-hold acquisition blocks every launcher and adapter start path,
+  survives holder failure without TTL reopening, rejects stale generations,
+  and admits only the exact committed restore receipt;
 - captured, re-resolved, reconstructed, and blocking dependencies behave as
   declared;
 - restored readiness stays closed through compatibility, dependency, identity,
@@ -1137,7 +1185,8 @@ Hosted Integration conformance additionally proves typed bundle registration,
 owner reference resolution, local/hosted binding equivalence, required and
 advisory Hosting Profile posture, Status/Doctor provenance, missing-binding
 failure without weaker fallback, fleet-consumable stable reasons, lifecycle
-audit identities, and secret/artifact metadata redaction.
+audit identities, lifecycle-owner restore-hold adoption, and secret/artifact
+metadata redaction.
 
 ### Host persistence migration and deletion gate
 
@@ -1178,13 +1227,17 @@ Continuity then lands:
 3. **Hosted publication:** continuity-owned publication interface registered
    and selected through Hosted Integration, with Lobster's encrypted durable
    binding and required/advisory profile evidence.
-4. **Replacement and handoff:** final clean-shutdown capture, exact publication
+4. **Restore hold owner/adopter pair:** an OpenClaw continuity/lifecycle-owner
+   contract and conformance fixture, followed by a Lobster implementation that
+   binds the stable tenant/user owner generation and fences both runtime-side
+   start fan-in and in-container Gateway spawn fan-in.
+5. **Replacement and handoff:** final clean-shutdown capture, exact publication
    receipt, runtime-generation fencing, restore dependency closure, and
    restore-gated readiness on fresh compute.
-5. **Hibernate and wake:** atomic wake intent, hibernation handoff, Lobster
+6. **Hibernate and wake:** atomic wake intent, hibernation handoff, Lobster
    retained Teams/API ingress, cron wake and reconciliation, and scale-from-zero
    conformance.
-6. **Migration and deletion:** shadow comparison, authority cutover, removal of
+7. **Migration and deletion:** shadow comparison, authority cutover, removal of
    Lobster path-copy/restore ordering and private lifecycle signals, and
    documented rollback expiry.
 
