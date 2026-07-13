@@ -458,6 +458,16 @@ identity checks must either reconstruct from the immutable materialization or
 quarantine. Reduced automatic-resume availability must never become overwrite,
 adoption, rollback, clean-start fallback, or admission with uncertain state.
 
+Managed execution does not require an OpenClaw-to-host authority carrier.
+The host acquires the lifecycle hold, marks publication started, and invokes
+one explicit OpenClaw restore executor with immutable owner-generation,
+revision, restore, artifact, materialization, target-policy, and journal
+identities. OpenClaw owns target revalidation, claim-and-assemble, and the
+opaque committed receipt. The host then commits that exact receipt through
+lifecycle CAS and invokes its existing restored-start fan-in. A command launch
+or pre-claim failure after publication starts remains held for same-identity
+retry or quarantine; it never reopens ordinary startup.
+
 ### Runtime impact and fail modes
 
 Recurring capture is off the ordinary message, agent, and tool-call hot paths.
