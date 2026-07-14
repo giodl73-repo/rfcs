@@ -3,7 +3,7 @@ title: Skill Receipts and Orchestration
 authors:
   - Gio Lodi
 created: 2026-07-13
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
@@ -13,90 +13,260 @@ rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 
 ## Summary
 
-Add a small OpenClaw-native receipt primitive, then use it as the foundation
-for auditable skill orchestration.
-
-A successful tool call can assert one or more typed receipts such as
-`inventory.sent`, `payment.authorized`, or `invoice.paid`. The tool or plugin
-owns the meaning and payload of each type. OpenClaw owns execution identity,
-timestamps, session and run correlation, model and usage correlation,
-sanitization, storage, and query.
-
-The OpenClaw session remains the conversation or activity stream. An optional
-`regarding` association identifies the one primary business record that the
-session is about, such as a case, opportunity, invoice, shipment, or incident.
-Receipts recorded during the session snapshot that association in their
-OpenClaw-owned envelope. This follows the useful Dataverse distinction between
-an activity and the record it is regarding without importing a CRM object
-model into core.
-
-Orchestration comes later. Once receipts can be recorded and queried, a skill
-run can use them as evidence that a step completed. OpenClaw can then add
-ordered steps, child skill invocation, per-step model selection, and budgets
-without introducing a second execution system.
+Add a small, portable skill declaration and an OpenClaw-native evidence model
+so operators can see which exact skill ran, what its tools proved, how many
+tokens and US dollars it consumed, and whether it stayed within a shared
+orchestration budget, without introducing a second workflow engine.
 
 ## Motivation
 
-OpenClaw already knows when tools run, which session and model are active, and
-how many tokens a provider turn uses. What it does not have is a small domain
-fact that says what a successful call accomplished.
+A skill may declare the receipt types it intends to emit, the child skills it
+may invoke, and whether it requires an isolated run. A successful tool call may
+emit a typed receipt such as `inventory.sent`, `payment.authorized`, or
+`invoice.paid`. OpenClaw records the exact skill invocation, child-run lineage,
+model usage, USD cost when available, budget consumption, and receipts actually
+observed.
 
-A generic tool result can say that an API call returned successfully, but the
-useful receipt may be more specific:
+The central invariant is:
 
-- inventory was sent;
-- a payment was authorized;
-- an invoice was paid;
-- a message was accepted by a provider;
-- a deployment was created.
+> `SKILL.md` declares intent. A Claw or caller supplies policy. The OpenClaw
+> harness records facts.
 
-For a payment, the provider authorization code is stronger evidence than a
-model summary. For inventory, the shipment or transfer identifier is the
-useful receipt. OpenClaw should preserve those facts without defining payment,
-inventory, or invoicing schemas in core.
+Skills remain useful without a Claw. A Claw strengthens the model by supplying
+exact package identity, installed-agent provenance, an allowed skill graph, and
+orchestration budget policy. This RFC depends on the composition and lifecycle
+boundaries in [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27) when a
+Claw is present; it does not duplicate Claw installation, update, or removal.
 
-Typed receipts also give later orchestration a clean completion boundary. A
-step can wait for `payment.authorized` without parsing prose or treating every
-successful tool call as equivalent.
+The first orchestration milestone is not a general step engine. It is one
+audited, measurable child skill call with honest spend and enforceable limits.
+
+An operator should be able to answer:
+
+- Which exact skill revision ran?
+- Who or what invoked it?
+- Which model calls and child runs did it create?
+- How many tokens and US dollars did it consume?
+- Was the cost provider-billed or catalog-estimated?
+- Which business outcome did its tools prove?
+- Which session, business record, and Claw did it belong to?
+- Did it remain within its orchestration budget?
+
+For example, an isolated refund skill may produce this run summary:
+
+```json
+{
+  "skill": {
+    "name": "issue-refund",
+    "digest": "sha256:abc123"
+  },
+  "invocationId": "inv-456",
+  "runId": "run-123",
+  "usage": {
+    "inputTokens": 3200,
+    "outputTokens": 480,
+    "cacheReadTokens": 1200,
+    "totalTokens": 4880
+  },
+  "cost": {
+    "usd": 0.0184,
+    "basis": "catalog-estimate"
+  },
+  "receipts": [
+    {
+      "type": "payment.refunded",
+      "data": {
+        "authorizationCode": "REF-9482"
+      }
+    }
+  ]
+}
+```
+
+The authorization code is business evidence supplied by the payment tool. The
+skill name, digest, invocation ID, run ID, usage, and cost basis are harness
+facts. Neither substitutes for the other.
 
 ## Goals
 
-- Let a successful tool result assert typed, filterable receipts.
-- Keep receipt meaning and type-specific data owned by the tool or plugin.
-- Let a plugin or tool set one typed primary `regarding` association on an
-  existing OpenClaw session.
-- Add OpenClaw-owned execution correlation when a receipt is recorded.
-- Reuse existing tool results, sessions, trajectories, provider usage, child
-  sessions, and model selection primitives.
-- Add orchestration one capability at a time after receipt recording is useful
-  on its own.
-- Track token usage honestly: shared turn usage remains shared; isolated child
-  runs may be attributed exclusively.
+- Let successful tool results assert typed, filterable business receipts.
+- Add a portable, optional `SKILL.md` declaration for managed orchestration.
+- Record exact skill identity, invocation lifecycle, and parent/child lineage.
+- Attribute tokens and USD cost honestly at the model-run boundary.
+- Aggregate orchestration spend without counting a run more than once.
+- Enforce a shared root budget across isolated descendant skill runs.
+- Associate sessions and receipts with one optional primary business record.
+- Reuse OpenClaw tools, sessions, trajectories, usage normalization, model cost,
+  child sessions, policy, sanitization, and state accessors.
+- Reuse Claw package identity and provenance when a Claw owns the agent.
 
 ## Non-goals
 
 - A business schema registry in OpenClaw core.
-- An arbitrary external-reference or relationship graph.
-- A payment ledger, inventory system, or invoice state machine.
-- A new general workflow language.
-- Expressions, conditions, loops, joins, or dynamic fan-out in the initial
-  implementation.
-- Inferring business completion from model prose.
-- Claiming exclusive per-skill token usage when several skills share one turn.
-- Replacing OpenClaw sessions, trajectories, tools, plugins, or child agents.
+- A payment ledger, inventory system, CRM, or invoice state machine.
+- Inferring receipts from model prose.
+- Assigning an invented portion of a shared model turn to each skill it read.
+- Letting skill metadata grant tools, credentials, models, or permissions.
+- Letting a skill set its own authoritative budget.
+- A new general workflow language or executor.
+- Ordered steps, expressions, conditions, loops, joins, retries, or parallel
+  fan-out in the first implementation.
+- Replacing Agent Skills, Claws, sessions, trajectories, plugins, or child
+  agents.
 
-## Regarding and receipt contracts
+## Proposal
 
-The contracts are intentionally small.
+### Three ownership layers
+
+The design has three layers with different trust and lifecycle boundaries.
+
+#### Skill declaration
+
+`SKILL.md` describes capability and intent:
+
+- receipt types the skill intends to emit;
+- child skills it may request;
+- whether managed execution should be isolated.
+
+The declaration is reviewable package data. It is not evidence that an outcome
+occurred, and it cannot widen runtime authority.
+
+#### Claw or caller policy
+
+A Claw or direct caller owns execution policy:
+
+- the installed skill packages and exact versions;
+- the allowed parent/child graph;
+- token and optional USD limits;
+- model choices when a later policy surface supports them;
+- whether declaration mismatches warn or fail.
+
+When a Claw is present, OpenClaw uses RFC 0016 package and installed-agent
+provenance rather than inventing another bundle or dependency identity. A
+standalone skill invocation receives equivalent local policy from its caller or
+OpenClaw configuration.
+
+#### Harness evidence
+
+OpenClaw records what actually happened:
+
+- canonical skill source, version when known, and content or package digest;
+- invocation, parent invocation, run, parent run, session, and Claw identity;
+- provider, model, normalized tokens, captured USD cost, and cost basis;
+- status, duration, errors, and child runs;
+- receipts actually emitted by successful tools;
+- active session business context;
+- budget charges and exhaustion.
+
+The declaration and the evidence remain separate so audit consumers can compare
+expected and observed behavior.
+
+### Portable skill orchestration metadata
+
+OpenClaw follows the [Agent Skills specification](https://agentskills.io/specification),
+which permits an optional string-valued `metadata` map and recommends unique
+extension keys. This RFC introduces one optional, versioned extension:
+
+```yaml
+---
+name: issue-refund
+description: Verify a refund request and issue an approved customer refund.
+metadata:
+  openclaw.orchestration: >-
+    {
+      "schemaVersion": 1,
+      "receipts": {
+        "emits": ["payment.refunded"]
+      },
+      "invokes": ["verify-customer", "check-refund-policy"],
+      "execution": {
+        "isolation": "required"
+      }
+    }
+---
+```
+
+The JSON string keeps the file valid for Agent Skills implementations that
+require metadata values to be strings. Other implementations may ignore the
+namespaced key or implement the same contract.
+
+The normalized version 1 declaration is intentionally small:
 
 ```ts
-type SessionRegarding = {
-  system: string;
-  type: string;
-  id: string;
-  key?: string;
+type SkillOrchestrationDeclarationV1 = {
+  schemaVersion: 1;
+  receipts?: {
+    emits?: string[];
+  };
+  invokes?: string[];
+  execution?: {
+    isolation?: "shared" | "preferred" | "required";
+  };
 };
+```
 
+Unknown fields are ignored within a recognized version. An unknown schema
+version is not used for managed orchestration. It does not prevent ordinary
+skill discovery or instruction loading.
+
+#### Receipt declarations
+
+`receipts.emits` lists outcomes the skill intends to produce during successful
+managed execution. It is useful for planning, inspection, and comparing
+declared behavior with observed receipts.
+
+It does not create a receipt, mark a run successful, or authorize the model to
+claim that the event occurred. Actual receipts must still come from completed
+successful tool calls.
+
+A run that finishes without a declared receipt may report the mismatch. Version
+1 does not automatically turn that mismatch into a failed business operation.
+Strict receipt gates belong with later ordered-step semantics.
+
+#### Child skill declarations
+
+`invokes` lists the skill names this skill may request as managed children. The
+effective child set is the intersection of:
+
+- the parent skill declaration;
+- Claw or caller policy;
+- skill visibility and model-invocation policy;
+- normal tool, sandbox, credential, and model restrictions.
+
+Metadata can narrow authority. It cannot make a hidden or prohibited skill
+invocable.
+
+#### Isolation declarations
+
+`execution.isolation` has these meanings:
+
+- `shared`: the skill may use the current run; usage and cost remain shared.
+- `preferred`: use an isolated child run when supported.
+- `required`: reject managed invocation when OpenClaw cannot create an isolated
+  child run.
+
+Isolation is the honest accounting boundary. A child run can own its model
+usage exclusively; several skills used within one model turn cannot.
+
+#### Fields that do not belong in skill metadata
+
+Skill metadata must not contain:
+
+- actual tokens, cost, receipts, authorization codes, or run status;
+- credentials or resolved secret values;
+- permission grants;
+- authoritative token or USD budgets;
+- claims that an external mutation succeeded;
+- runtime-generated model choices or lineage.
+
+Those values are caller policy or harness evidence and become stale or unsafe
+when self-declared by a skill package.
+
+### Receipt contract
+
+The producer-owned receipt remains small and generic:
+
+```ts
 type SkillReceipt = {
   type: string;
   version?: number;
@@ -108,12 +278,46 @@ type SkillReceipt = {
 };
 ```
 
-`SessionRegarding` is a singular primary association, not a general relation
-list. Its identity is the tuple of `system`, `type`, and `id`. `key` is an
-optional human-facing business key such as a case, invoice, or order number.
-Core treats all four fields as opaque strings.
+`type` is the primary business filter and should be namespaced enough to remain
+meaningful outside one tool, such as `payment.authorized` rather than
+`completed`. `version`, `subject`, and `data` belong to the producer's schema.
+OpenClaw does not interpret their business meaning.
 
-For example, an email support session may be regarding a Dataverse case:
+The harness records the receipt in an existing trajectory envelope and adds:
+
+- record timestamp and ID;
+- session and run identity;
+- tool name and tool-call ID;
+- skill invocation identity when present;
+- active `regarding` snapshot when present;
+- provider and model correlation from the run.
+
+The receipt does not own token usage. Audit projections join it to run-level
+usage and spend through the invocation and run identity.
+
+Malformed receipt data is not recorded as evidence. Receipt recording failure
+does not rewrite the underlying tool outcome, but it remains observable as an
+audit diagnostic.
+
+### Session business context
+
+The OpenClaw session remains the conversation or activity stream. One optional
+primary association identifies the business record that the session is about:
+
+```ts
+type SessionRegarding = {
+  system: string;
+  type: string;
+  id: string;
+  key?: string;
+};
+```
+
+The identity is `system`, `type`, and `id`. Optional `key` is a human-facing
+reference such as a case or invoice number. Core treats the fields as opaque.
+
+For example, a mail plugin may correlate an email thread to an OpenClaw session,
+match or create a Dataverse case, and set:
 
 ```json
 {
@@ -124,277 +328,348 @@ For example, an email support session may be regarding a Dataverse case:
 }
 ```
 
-The channel thread and the business record remain separate identities. A mail
-plugin may use provider message correlation to select the OpenClaw session,
-then use domain criteria to match or create a case and set the session's
-`regarding` association. Subject text is not an identity.
+Channel thread identity and business record identity remain separate. Subject
+text is not an identity. Plugins and tools own matching and external creation;
+OpenClaw owns session persistence, audited set/replace/clear transitions, and
+receipt snapshots.
 
-`type` is the primary filter key. It should be namespaced enough to remain
-meaningful outside one tool, for example `payment.authorized` rather than
-`completed`.
+This follows the Dataverse Set Regarding pattern without importing a CRM object
+model into core. `SkillReceipt.subject` remains the object a particular event
+concerns and is not an alias for the session's primary `regarding` value.
 
-`version` belongs to the producer's schema. OpenClaw does not interpret it.
+Regarding is useful for support, finance, sales, and operations, but it is not a
+prerequisite for standalone receipts or skill invocation.
 
-`subject` is the optional producer-owned object that the particular business
-event concerns. It is distinct from `regarding`, which is the OpenClaw-owned
-snapshot of the session's primary business context. A payment receipt may have
-the payment or invoice as its subject while the surrounding session is
-regarding an order, case, or customer. The two values may match but are not
-aliases and neither is inferred from the other.
+### Invocation and exact skill identity
 
-`data` contains type-specific evidence. For example:
+Every explicit managed skill call receives one stable invocation ID. An
+isolated child additionally receives parent invocation and parent run IDs.
 
-```json
-{
-  "type": "payment.authorized",
-  "version": 1,
-  "subject": {
-    "type": "invoice",
-    "id": "inv-123"
-  },
-  "data": {
-    "authorizationCode": "auth-456",
-    "providerPaymentId": "pay-789"
-  }
-}
+Runtime evidence should identify the exact executed artifact:
+
+```ts
+type ExecutedSkillIdentity = {
+  name: string;
+  source: string;
+  version?: string;
+  digest: string;
+};
 ```
 
-The producer supplies the receipt. The harness adds the record envelope:
+The installed package version and digest are authoritative when available. A
+self-declared version is descriptive only. Workspace skills use a canonical
+source identity and content digest.
 
-- record ID;
-- timestamp;
-- session and run ID;
-- tool name and tool-call ID;
-- effective provider and model when available;
-- the active session `regarding` snapshot when available;
-- skill invocation or step ID when available;
-- usage reference or usage scope when available.
+When a Claw owns the installed agent, the run also records:
 
-These correlation fields are harness facts and cannot be supplied by the
-receipt producer.
+```ts
+type ClawExecutionIdentity = {
+  clawId: string;
+  clawVersion?: string;
+  clawDigest: string;
+};
+```
 
-Setting, replacing, or clearing `regarding` is explicit and auditable. The
-session stores the current value. Trajectory events record the change, and a
-receipt stores the value active when the receipt was emitted so later changes
-do not rewrite history.
+This identity comes from RFC 0016 install provenance. It lets reports compare
+cost and outcomes by exact skill and Claw revision without putting runtime data
+back into `SKILL.md` or the Claw manifest.
 
-## Ownership boundary
+Managed child invocation reuses OpenClaw's existing child-session and gateway
+agent paths. It does not create a second executor. Parent and child calls retain
+normal policy and do not widen tool, sandbox, credential, or model access.
 
-The tool or plugin owns:
+### Spend accounting
 
-- receipt type;
-- schema version;
-- subject meaning;
-- type-specific evidence;
-- the decision that the business event actually occurred;
-- criteria for matching or creating an external business record;
-- the decision to set, replace, or clear a session's `regarding` association.
+People need to know how much a skill costs. Spend is therefore part of the first
+orchestration milestone, not a later analytics feature.
 
-OpenClaw owns:
+#### Run ownership
 
-- accepting receipts only from completed successful calls;
-- validating and persisting the canonical `regarding` shape on the session;
-- auditing `regarding` changes and snapshotting the active value on receipts;
-- correlation and timestamps;
-- sanitization and redaction;
-- retention and export;
-- filtering and query;
-- later skill-run and step linkage;
-- usage scope and token accounting.
+Model usage belongs to the run that consumed it:
 
-This keeps OpenClaw generic while still making sessions and receipts
-operationally useful across support, sales, finance, logistics, and operations.
+- an isolated child skill owns its run usage exclusively;
+- an inline skill used during a shared model turn does not receive an invented
+  fraction of that turn;
+- the containing run reports shared usage when exclusive attribution is not
+  available;
+- an orchestration total sums each contributing run exactly once.
 
-## Prior-art pattern: Dataverse Set Regarding
+Receipts correlate with spend through invocation and run IDs. They do not own
+tokens or cost.
 
-Microsoft Dataverse stores an email as an activity and uses the polymorphic
-`RegardingObjectId` lookup to associate that activity with one primary row.
-Dynamics 365 calls the user operation **Set Regarding**. Automatic email-to-case
-rules can correlate an incoming reply, match or create a case, and associate the
-email activity with that case.
+#### Normalized tokens
 
-OpenClaw should reuse the pattern, not the Dataverse schema:
+OpenClaw reuses its normalized provider usage buckets:
 
-- the OpenClaw session is the conversation/activity stream;
-- channel-native thread correlation selects that session;
-- a plugin or tool applies domain criteria and sets `regarding`;
-- receipts and usage remain events within the session and snapshot the active
-  association;
-- core stores and filters explicit `system`, `type`, `id`, and `key` fields
-  rather than requiring a polymorphic business-object registry.
+- input;
+- output;
+- cache read;
+- cache write;
+- total.
 
-References:
+The provider aggregate is preferred when present. Otherwise total usage is the
+sum of the normalized billable buckets. Failed, retried, and timed-out attempts
+are included whenever the provider reported usage.
 
-- [Link and track an email or appointment with Set Regarding](https://learn.microsoft.com/en-us/dynamics365/outlook-app/user/track-message-or-appointment)
-- [Dataverse email table and RegardingObjectId](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/entities/email)
-- [Automatically create a case from an email](https://learn.microsoft.com/en-us/dynamics365/customer-service/administer/automatically-create-case-from-email)
-- [Email reply correlation and automatic case creation](https://learn.microsoft.com/en-us/troubleshoot/dynamics-365/customer-service/email/incoming-email-not-converted-case)
+#### USD cost
 
-## Incremental implementation
+OpenClaw reuses existing model cost calculation and provider-reported cost:
 
-### Phase 1: Carry receipts on tool results
+```ts
+type RunCost = {
+  usd: number;
+  basis: "provider-billed" | "catalog-estimate" | "mixed";
+};
+```
 
-Add an optional receipt collection to the existing structured tool result.
-Preserve it through after-tool hooks and tool-result middleware.
+- `provider-billed` means the provider supplied an authoritative billed total.
+- `catalog-estimate` means OpenClaw applied configured model pricing to the
+  normalized usage.
+- `mixed` applies only to an aggregate containing more than one basis.
 
-This phase does not add storage or orchestration. It proves the producer
-contract and compatibility boundary.
+The amount and basis are captured at execution time. Historical audit output
+must not silently change when model catalog pricing changes later. Cost is
+omitted when neither provider billing nor a usable catalog estimate exists.
 
-Prototype: `giodl73-repo/openclaw#66`.
+An orchestration report should include per-run, per-model, and total spend so a
+Claw can show which skill revisions produced which outcomes at what cost.
 
-### Phase 2: Record successful receipts
+### Shared orchestration budgets
 
-Project valid receipts from successful tool results into OpenClaw's existing
-trajectory stream. Record a stable event such as `audit.receipt`; keep the
-business receipt type in event data as the primary domain filter.
+A budget belongs to one isolated root skill run and covers its managed
+descendants. The canonical root child session owns the durable counter.
 
-Trajectory already supplies timestamp, session, run, provider, and model
-correlation. The receipt projection adds tool name and tool-call ID. Failed
-calls do not produce receipts.
+```ts
+type OrchestrationBudget = {
+  rootRunId: string;
+  tokenLimit: number;
+  tokensUsed: number;
+  costLimitUsd?: number;
+  costUsedUsd?: number;
+  costBasis?: "provider-billed" | "catalog-estimate" | "mixed";
+  createdAt: number;
+  updatedAt: number;
+  exhaustedAt?: number;
+};
+```
 
-Prototype: `giodl73-repo/openclaw#67`.
+Version 1 requires a token limit for enforcement. USD spend is tracked whenever
+available. A hard USD limit may be added once mixed billed/estimated enforcement
+semantics are accepted; reporting cost does not wait for that decision.
 
-### Phase 3: Query receipts
+The budget contract is:
 
-Add a narrow query surface over recorded receipts. The first filters should be:
+1. The caller or Claw establishes one limit on the root isolated invocation.
+2. Descendants inherit an opaque owner-session and root-run reference.
+3. Descendants cannot redefine or increase the limit.
+4. Each completed model attempt charges its full observed usage atomically.
+5. A call that crosses the remaining limit is recorded in full.
+6. Exhaustion stops the next model or managed child-skill action.
 
-- receipt type;
-- subject type and ID;
-- session or run ID;
-- tool name;
-- time range.
+A budget cannot predict the exact size of one provider call, so it cannot
+prevent a final overshoot. It prevents additional spend after the overshooting
+call is observed. Initial enforcement is sequential; reservations for parallel
+fan-out are outside version 1.
 
-This phase should reuse the existing trajectory or state storage selected by
-OpenClaw. It should not introduce a separate business ledger.
+The durable counter is the enforcement source of truth. Retention-bounded
+trajectory summaries remain audit and reporting views, not the hard budget
+ledger. Accounting failure in a managed budgeted run must stop before another
+paid action rather than silently drifting from observed spend.
 
-Prototype: `giodl73-repo/openclaw#68` begins with receipt-type filtering on the
-existing session trajectory query.
+### Claw integration
 
-### Phase 4: Record skill use
+RFC 0016 defines a Claw as one complete installed agent with exact package
+references and durable provenance. This RFC adds runtime measurement without
+changing that ownership model.
 
-Project OpenClaw's existing trusted `skill.used` diagnostic fact into the
-trajectory. Preserve the native distinction between reading skill instructions
-and explicitly activating a skill command. Do not record trusted skill file
-paths in the public trajectory payload.
+When a Claw owns the agent:
 
-Prototype: `giodl73-repo/openclaw#69`.
+- installed skill package identity supplies authoritative version and digest;
+- Claw provenance supplies the agent and Claw execution identity;
+- Claw or local operator policy may restrict the allowed skill graph;
+- Claw or local operator policy may establish root token and cost limits;
+- audit summaries group invocations, spend, and receipts by Claw revision.
 
-### Phase 5: Set session regarding
+The effective runtime policy remains an intersection with ordinary OpenClaw
+policy. Installing a Claw or declaring `invokes` never grants new tools,
+credentials, channel access, models, or child skills.
 
-Add a narrow core seam to get, set, replace, and clear the optional primary
-`regarding` association on an existing session. Reuse the session accessor and
-trajectory storage rather than creating a business-record store.
+The initial RFC 0022 implementation does not require a new portable RFC 0016
+manifest field. A later Claw runtime-policy field may be added through the Claws
+schema process after the standalone invocation and budget contracts settle.
 
-The association belongs to the logical session entry identified by
-`sessionKey`, not to one model run or one rotating transcript `sessionId`.
+### Query and reporting
 
-The operation records a trajectory event such as `session.regarding.set` or
-`session.regarding.cleared`. A plugin, tool, or skill owns the criteria and the
-external mutation; OpenClaw owns only the canonical association and its audit
-history.
+The stable contract is a versioned record and filter model, not a particular
+prototype CLI flag. OpenClaw should expose:
 
-The proving scenario is an email session associated with a case, but no
-support-specific field or case behavior belongs in core.
+- receipts filtered by business type, subject, run, session, tool, time, and
+  `regarding` identity;
+- run summaries joining invocation lifecycle, receipts, model identity, usage,
+  and captured cost;
+- orchestration summaries joining unique parent and descendant runs;
+- budget state showing limits, actual consumption, and exhaustion;
+- Claw and skill revision filters when provenance is available.
 
-### Phase 6: Correlate receipts, skills, regarding, and usage
+The first implementation may project existing trajectory and session data.
+It does not require a separate business ledger. Public CLI, Gateway, and UI
+surfaces may evolve independently around the same record contracts.
 
-When OpenClaw has an explicit skill invocation identity, attach it to receipts
-produced during that invocation. Record the effective model and link existing
-provider usage. Snapshot the active `regarding` value on each receipt envelope
-and allow queries by `regarding.system`, `regarding.type`, `regarding.id`, and
-`regarding.key`.
-
-Usage must declare its scope:
-
-- `shared` when several skills or actions use the same agent turn;
-- `exclusive` only when a step runs in an isolated child session whose usage
-  can be measured independently.
-
-This phase enables reporting token spend by run without inventing token data.
-
-### Phase 7: Manage ordered steps
-
-Add a small durable run object with ordered steps. A step may complete from a
-tool result and its receipts. Initial step execution is sequential.
-
-A step records:
-
-- step ID and run ID;
-- requested skill or action;
-- expected receipt type when applicable;
-- status and terminal outcome;
-- child session ID when isolated;
-- model and usage scope;
-- emitted receipt references.
-
-No expressions or arbitrary conditions are required for this phase.
-
-### Phase 8: Invoke another skill
-
-Allow one managed step to invoke another skill through the same OpenClaw
-session and child-agent primitives used elsewhere. The harness may select a
-different model for an isolated child step and records its usage separately.
-
-Parent and child calls do not widen tool, sandbox, credential, or model policy.
-
-### Later: Budgets and richer orchestration
-
-Once isolated step usage is reliable, a run or step may set a token budget.
-Budget enforcement should reuse OpenClaw's existing usage normalization and
-goal/session budget primitives.
-
-Expressions, parallel fan-out, joins, retries, and computed gates can be
-considered later. They are not prerequisites for useful receipts or ordered
-skill runs.
-
-## Failure behavior
+### Failure behavior
 
 - A failed tool call emits no success receipt.
-- A malformed receipt is ignored rather than recorded as evidence.
-- Receipt recording failure must not rewrite the underlying tool outcome.
-- An invalid `regarding` value is rejected without changing the current session
-  association.
-- Replacing or clearing `regarding` records an explicit audited transition.
-- A step waiting for a receipt remains incomplete if the expected receipt was
-  not recorded.
-- Usage is omitted or marked shared when exclusive attribution is unavailable.
-- Redaction applies before durable recording and export.
+- A malformed receipt is not recorded as business evidence.
+- Receipt recording failure does not rewrite the tool's success or failure.
+- An invalid `regarding` value does not change the session association.
+- Replacing or clearing `regarding` records an audited transition.
+- Unknown orchestration metadata does not break ordinary skill loading.
+- A managed child request outside the effective declared and allowed graph is
+  rejected before dispatch.
+- `isolation: required` fails before dispatch when isolation is unavailable.
+- Usage is omitted when the provider reports none; it is never invented.
+- Cost is omitted when neither billed nor estimated cost is available.
+- A stale budget root reference cannot charge another root's counter.
+- An exhausted budget prevents the next paid or managed child action.
+- Sanitization and redaction apply before durable recording and export.
+
+## Rationale
+
+The design separates declarations from evidence because skill packages are not
+trusted witnesses for their own outcomes or cost. Tool receipts provide domain
+evidence, while the harness provides execution identity and spend. A Claw or
+caller remains the correct owner for limits and policy.
+
+Run-level accounting is the smallest honest attribution boundary. Assigning
+tokens directly to a receipt or to every skill read during a shared turn would
+produce precise-looking but false numbers. Isolated child sessions already give
+OpenClaw an exclusive execution boundary, so the proposal reuses them.
+
+The metadata is a namespaced Agent Skills extension rather than a new manifest.
+Standalone skills remain portable, implementations may ignore the extension,
+and Claws continue to own packaging and lifecycle. A later standards proposal
+can promote the fields after real interoperability proof.
+
+Finally, the proposal stops at one measurable, budgeted child call. Ordered
+steps and richer orchestration can reuse the same primitives later if demand
+justifies them; they do not need to be accepted to make skills auditable now.
+
+## Implementation plan
+
+The prototype series deliberately proved assumptions one at a time. An
+upstream-shaped implementation should consolidate them into coherent vertical
+slices rather than preserve every intermediate state.
+
+### 1. Record and query typed receipts
+
+Carry typed receipts through successful tool results, record them in existing
+trajectory data, and support the first business-type query. Prove
+`payment.authorized` with an authorization code and prove that failed calls
+record no success receipt.
+
+Prototype evidence: `giodl73-repo/openclaw#66` through `#68`.
+
+### 2. Add audited session regarding
+
+Set, replace, clear, and read one primary session association; audit real
+changes. Snapshot the active association onto later receipts and support exact
+identity filters.
+
+Prototype evidence: `giodl73-repo/openclaw#70` and `#76` through `#78`.
+
+### 3. Consume orchestration metadata in explicit invocation
+
+Parse and normalize `openclaw.orchestration` with a real consumer. Record
+explicit invocation lifecycle and exact skill identity. Do not land an inert
+metadata contract with no production path.
+
+Prototype evidence: `giodl73-repo/openclaw#79`, `#80`, and `#82` establish the
+run projection and shared invocation identity. Exact skill digest and metadata
+consumption remain follow-up proof.
+
+### 4. Invoke a declared child skill with lineage
+
+Run one named declared child through existing child-session primitives. Record
+parent invocation and run lineage and enforce `isolation: required`.
+
+Prototype evidence: `giodl73-repo/openclaw#83` and `#84`.
+
+### 5. Report run and orchestration spend
+
+Report normalized tokens and captured USD cost per run, model, skill revision,
+and orchestration. Preserve shared versus exclusive attribution and aggregate
+each run once.
+
+Prototype evidence: `giodl73-repo/openclaw#85` proves retention-bounded token
+aggregation. Captured cost and revision grouping remain to be proved.
+
+### 6. Enforce one shared root budget
+
+Create the root owner, inherit it through descendants, charge complete observed
+attempts, track spend, and stop before the next model or child-skill action once
+exhausted.
+
+Prototype evidence: `giodl73-repo/openclaw#86` and `#87` prove the owner and
+live token charging. Enforcement and USD spend remain to be proved.
+
+Direct tool-dispatch parity, `skill.used` read diagnostics, richer query
+presentation, and ordered steps can follow independently. They are not required
+to validate the first managed child-call contract.
 
 ## Acceptance criteria
 
-The receipt and regarding implementation series is successful when:
+The first complete series is successful when:
 
-- a tool can return `payment.authorized` with an authorization code;
-- after-tool hooks and middleware preserve that receipt;
-- a successful call records a correlated receipt event;
-- a failed call records no success receipt;
-- recorded receipts can be filtered by their business `type`;
-- a plugin or tool can set and read one primary `regarding` association on a
-  session;
-- replacing or clearing that association is audited;
-- subsequent receipts snapshot the active association and can be filtered by
-  its explicit fields;
-- existing trajectory sanitization and retention apply;
-- no new business-specific schema or workflow engine is added.
+1. A successful tool can emit `payment.authorized` with an authorization code.
+2. Failed tools and malformed receipts produce no success evidence.
+3. Receipts are recorded, sanitized, retained, and filterable by type.
+4. A session can be associated with a case or other opaque business record.
+5. Regarding set, replace, and clear transitions are audited.
+6. Later receipts snapshot and filter by the active regarding identity.
+7. A skill can declare emitted receipt types, allowed child skills, and
+   isolation intent in standard-compatible metadata.
+8. Ordinary skills without the metadata remain backward compatible.
+9. One explicit invocation records exact skill identity and lifecycle.
+10. One declared isolated child skill runs through existing OpenClaw session
+    and policy primitives with complete parent/child lineage.
+11. Each isolated run reports normalized tokens and captured USD cost with its
+    basis when available.
+12. Shared turns are labelled shared rather than divided among skills.
+13. An orchestration total counts each contributing run once.
+14. One durable root budget is inherited by descendants and cannot be widened.
+15. A completed call is charged fully, including failed attempts and overshoot.
+16. Exhaustion stops the next model or managed child action.
+17. When a Claw is present, reports include authoritative Claw and skill package
+    revision identity from Claw provenance.
 
-The first orchestration series is successful when:
+## Later orchestration
 
-- a durable run can execute a small ordered step list;
-- a step can reference receipts emitted during its execution;
-- a child skill can run through existing OpenClaw child-session primitives;
-- model and token usage are recorded with honest shared or exclusive scope;
-- a token budget can stop an isolated step without changing receipt semantics.
+After the first managed child-call and budget contracts are accepted, OpenClaw
+may add a small durable ordered-step object. A step may reference a declared
+skill and observed receipt, but it must reuse the same invocation, session,
+usage, cost, and budget primitives.
+
+Expressions, conditions, retries, model overrides, parallel fan-out, joins,
+loops, reservations, and computed gates remain later work. They are not
+prerequisites for useful receipts, measurable skills, or budgeted child calls.
+
+## Prior art and dependencies
+
+- [Agent Skills specification](https://agentskills.io/specification)
+- [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27)
+- [Dynamics 365 Set Regarding](https://learn.microsoft.com/en-us/dynamics365/outlook-app/user/track-message-or-appointment)
+- [Dataverse Email and RegardingObjectId](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/entities/email)
+- [Automatic email-to-case creation](https://learn.microsoft.com/en-us/dynamics365/customer-service/administer/automatically-create-case-from-email)
+- [Email reply correlation and automatic case creation](https://learn.microsoft.com/en-us/troubleshoot/dynamics-365/customer-service/email/incoming-email-not-converted-case)
 
 ## Unresolved questions
 
-- Should the public tool-result property be named `receipts`, `audit`, or
-  `records`?
-- Should the first query surface read trajectory exports directly or project
-  receipts into OpenClaw's shared SQLite state?
-- Should the first `regarding` mutation seam be a session accessor capability,
-  a sessions command/API operation, or both?
-- Which session lifecycle transitions should preserve or clear `regarding`?
-- Which explicit skill invocation boundary should provide the first stable
-  skill invocation ID?
-- Which receipt fields require field-level redaction beyond existing payload
-  sanitization?
+- Should `openclaw.orchestration` remain an OpenClaw extension or be proposed as
+  a portable Agent Skills extension after implementation proof?
+- What canonical digest represents a mutable workspace skill across platforms?
+- Where should local Claw runtime graph and budget policy live without making
+  model or credential choices portable package data?
+- When is catalog-estimated cost sufficiently stable for hard USD enforcement,
+  and how should mixed billed and estimated runs behave?
+- Which session lifecycle transitions preserve or clear `regarding`?
+- When should a declared-versus-observed receipt mismatch become a strict
+  managed-run failure rather than an audit warning?
