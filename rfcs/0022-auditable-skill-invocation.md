@@ -20,8 +20,8 @@ orchestration budget, without introducing a second workflow engine.
 
 ## Motivation
 
-A skill may declare the receipt types it intends to emit, the child skills it
-may invoke, and whether it requires an isolated run. A successful tool call may
+A skill may declare the outcomes it can produce, the other skills it may use,
+and whether it requires an isolated run. A successful tool call may
 emit a typed receipt such as `inventory.sent`, `payment.authorized`, or
 `invoice.paid`. OpenClaw records the exact skill invocation, child-run lineage,
 model usage, USD cost when available, budget consumption, and receipts actually
@@ -124,8 +124,8 @@ The design has three layers with different trust and lifecycle boundaries.
 
 `SKILL.md` describes capability and intent:
 
-- receipt types the skill intends to emit;
-- child skills it may request;
+- outcomes the skill intends to produce;
+- other skills it may request;
 - whether managed execution should be isolated.
 
 The declaration is reviewable package data. It is not evidence that an outcome
@@ -161,59 +161,53 @@ OpenClaw records what actually happened:
 The declaration and the evidence remain separate so audit consumers can compare
 expected and observed behavior.
 
-### Portable skill orchestration metadata
+### Portable skill execution hints
 
 OpenClaw follows the [Agent Skills specification](https://agentskills.io/specification),
-which permits an optional string-valued `metadata` map and recommends unique
-extension keys. This RFC introduces one optional, versioned extension:
+which permits an optional string-valued `metadata` map. Skill authors should
+not need to learn OpenClaw's internal orchestration or receipt vocabulary. This
+RFC proposes three small, implementation-neutral hints:
 
 ```yaml
 ---
 name: issue-refund
 description: Verify a refund request and issue an approved customer refund.
 metadata:
-  openclaw.orchestration: >-
-    {
-      "schemaVersion": 1,
-      "receipts": {
-        "emits": ["payment.refunded"]
-      },
-      "invokes": ["verify-customer", "check-refund-policy"],
-      "execution": {
-        "isolation": "required"
-      }
-    }
+  outcomes: "payment.refunded"
+  uses-skills: "verify-customer check-refund-policy"
+  isolation: "required"
 ---
 ```
 
-The JSON string keeps the file valid for Agent Skills implementations that
-require metadata values to be strings. Other implementations may ignore the
-namespaced key or implement the same contract.
+All values remain strings, as required by Agent Skills. `outcomes` and
+`uses-skills` are whitespace-separated lists because receipt type identifiers
+and skill names cannot contain spaces. Other implementations may ignore these
+hints or implement the same behavior.
 
-The normalized version 1 declaration is intentionally small:
+The harness may normalize the hints internally:
 
 ```ts
-type SkillOrchestrationDeclarationV1 = {
-  schemaVersion: 1;
-  receipts?: {
-    emits?: string[];
-  };
-  invokes?: string[];
-  execution?: {
-    isolation?: "shared" | "preferred" | "required";
-  };
+type SkillExecutionHints = {
+  outcomes?: string[];
+  usesSkills?: string[];
+  isolation?: "shared" | "preferred" | "required";
 };
 ```
 
-Unknown fields are ignored within a recognized version. An unknown schema
-version is not used for managed orchestration. It does not prevent ordinary
-skill discovery or instruction loading.
+Unknown keys and values do not prevent ordinary skill discovery or instruction
+loading. Each hint can evolve independently without placing a JSON schema
+inside YAML frontmatter.
 
-#### Receipt declarations
+These names are proposed as Agent Skills community vocabulary, not as ownership
+claims over the global metadata namespace. During incubation, implementations
+may accept namespaced aliases for compatibility. The author-facing target is
+the direct vocabulary above.
 
-`receipts.emits` lists outcomes the skill intends to produce during successful
-managed execution. It is useful for planning, inspection, and comparing
-declared behavior with observed receipts.
+#### Outcome declarations
+
+`outcomes` lists business outcomes the skill intends to produce during
+successful managed execution. It is useful for planning, inspection, and
+comparing declared behavior with observed evidence.
 
 It does not create a receipt, mark a run successful, or authorize the model to
 claim that the event occurred. Actual receipts must still come from completed
@@ -225,7 +219,9 @@ Strict receipt gates belong with later ordered-step semantics.
 
 #### Child skill declarations
 
-`invokes` lists the skill names this skill may request as managed children. The
+`uses-skills` lists the skill names this skill may request as managed children.
+It is deliberately different from a package `requires` field: a possible child
+call is not necessarily an installation dependency or prerequisite. The
 effective child set is the intersection of:
 
 - the parent skill declaration;
@@ -238,7 +234,7 @@ invocable.
 
 #### Isolation declarations
 
-`execution.isolation` has these meanings:
+`isolation` has these meanings:
 
 - `shared`: the skill may use the current run; usage and cost remain shared.
 - `preferred`: use an isolated child run when supported.
@@ -490,7 +486,7 @@ When a Claw owns the agent:
 - audit summaries group invocations, spend, and receipts by Claw revision.
 
 The effective runtime policy remains an intersection with ordinary OpenClaw
-policy. Installing a Claw or declaring `invokes` never grants new tools,
+policy. Installing a Claw or declaring `uses-skills` never grants new tools,
 credentials, channel access, models, or child skills.
 
 The initial RFC 0022 implementation does not require a new portable RFC 0016
@@ -521,7 +517,7 @@ surfaces may evolve independently around the same record contracts.
 - Receipt recording failure does not rewrite the tool's success or failure.
 - An invalid `regarding` value does not change the session association.
 - Replacing or clearing `regarding` records an audited transition.
-- Unknown orchestration metadata does not break ordinary skill loading.
+- Unknown skill execution hints do not break ordinary skill loading.
 - A managed child request outside the effective declared and allowed graph is
   rejected before dispatch.
 - `isolation: required` fails before dispatch when isolation is unavailable.
@@ -575,14 +571,17 @@ identity filters.
 
 Consolidated proof: [giodl73-repo/openclaw#89](https://github.com/giodl73-repo/openclaw/pull/89).
 
-### 3. Consume orchestration metadata in explicit invocation
+### 3. Consume skill execution hints in explicit invocation
 
-Parse and normalize `openclaw.orchestration` with a real consumer. Record
-explicit invocation lifecycle and exact skill identity. Do not land an inert
-metadata contract with no production path.
+Parse and normalize `outcomes`, `uses-skills`, and `isolation` with a real
+consumer. Record explicit invocation lifecycle and exact skill identity. Do
+not land an inert metadata contract with no production path.
 
 Consolidated proof: [giodl73-repo/openclaw#90](https://github.com/giodl73-repo/openclaw/pull/90),
-including the production metadata consumer and exact full skill digest.
+including the production metadata consumer and exact full skill digest. The POC
+uses the earlier namespaced JSON envelope; the author-facing vocabulary above
+is the schema simplification learned from that proof and must replace it before
+an upstream-shaped implementation.
 
 ### 4. Invoke a declared child skill with lineage
 
@@ -625,8 +624,8 @@ The first complete series is successful when:
 4. A session can be associated with a case or other opaque business record.
 5. Regarding set, replace, and clear transitions are audited.
 6. Later receipts snapshot and filter by the active regarding identity.
-7. A skill can declare emitted receipt types, allowed child skills, and
-   isolation intent in standard-compatible metadata.
+7. A skill can declare outcomes, other skills it may use, and isolation intent
+   in standard-compatible string metadata.
 8. Ordinary skills without the metadata remain backward compatible.
 9. One explicit invocation records exact skill identity and lifecycle.
 10. One declared isolated child skill runs through existing OpenClaw session
@@ -663,8 +662,9 @@ prerequisites for useful receipts, measurable skills, or budgeted child calls.
 
 ## Unresolved questions
 
-- Should `openclaw.orchestration` remain an OpenClaw extension or be proposed as
-  a portable Agent Skills extension after implementation proof?
+- Should `outcomes`, `uses-skills`, and `isolation` be proposed as Agent Skills
+  community vocabulary after implementation proof, or incubate under temporary
+  namespaced aliases first?
 - What canonical digest represents a mutable workspace skill across platforms?
 - Where should local Claw runtime graph and budget policy live without making
   model or credential choices portable package data?
