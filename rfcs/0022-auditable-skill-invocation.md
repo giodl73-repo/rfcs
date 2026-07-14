@@ -441,20 +441,19 @@ descendants. The canonical root child session owns the durable counter.
 
 ```ts
 type OrchestrationBudget = {
+  schemaVersion: 1;
   rootRunId: string;
   tokenLimit: number;
   tokensUsed: number;
-  costLimitUsd?: number;
-  costUsedUsd?: number;
-  costBasis?: "provider-billed" | "catalog-estimate" | "mixed";
   createdAt: number;
   updatedAt: number;
   exhaustedAt?: number;
 };
 ```
 
-Version 1 requires a token limit for enforcement. USD spend is tracked whenever
-available. A hard USD limit may be added once mixed billed/estimated enforcement
+Version 1 enforces a token limit. USD spend remains available in the run and
+orchestration projections described above, including its billing or estimate
+basis. A hard USD limit may be added once mixed billed/estimated enforcement
 semantics are accepted; reporting cost does not wait for that decision.
 
 The budget contract is:
@@ -566,7 +565,7 @@ trajectory data, and support the first business-type query. Prove
 `payment.authorized` with an authorization code and prove that failed calls
 record no success receipt.
 
-Prototype evidence: `giodl73-repo/openclaw#66` through `#68`.
+Consolidated proof: [giodl73-repo/openclaw#88](https://github.com/giodl73-repo/openclaw/pull/88).
 
 ### 2. Add audited session regarding
 
@@ -574,7 +573,7 @@ Set, replace, clear, and read one primary session association; audit real
 changes. Snapshot the active association onto later receipts and support exact
 identity filters.
 
-Prototype evidence: `giodl73-repo/openclaw#70` and `#76` through `#78`.
+Consolidated proof: [giodl73-repo/openclaw#89](https://github.com/giodl73-repo/openclaw/pull/89).
 
 ### 3. Consume orchestration metadata in explicit invocation
 
@@ -582,16 +581,15 @@ Parse and normalize `openclaw.orchestration` with a real consumer. Record
 explicit invocation lifecycle and exact skill identity. Do not land an inert
 metadata contract with no production path.
 
-Prototype evidence: `giodl73-repo/openclaw#79`, `#80`, and `#82` establish the
-run projection and shared invocation identity. Exact skill digest and metadata
-consumption remain follow-up proof.
+Consolidated proof: [giodl73-repo/openclaw#90](https://github.com/giodl73-repo/openclaw/pull/90),
+including the production metadata consumer and exact full skill digest.
 
 ### 4. Invoke a declared child skill with lineage
 
 Run one named declared child through existing child-session primitives. Record
 parent invocation and run lineage and enforce `isolation: required`.
 
-Prototype evidence: `giodl73-repo/openclaw#83` and `#84`.
+Consolidated proof: [giodl73-repo/openclaw#91](https://github.com/giodl73-repo/openclaw/pull/91).
 
 ### 5. Report run and orchestration spend
 
@@ -599,17 +597,19 @@ Report normalized tokens and captured USD cost per run, model, skill revision,
 and orchestration. Preserve shared versus exclusive attribution and aggregate
 each run once.
 
-Prototype evidence: `giodl73-repo/openclaw#85` proves retention-bounded token
-aggregation. Captured cost and revision grouping remain to be proved.
+Consolidated proof: [giodl73-repo/openclaw#92](https://github.com/giodl73-repo/openclaw/pull/92),
+including captured USD cost and provider-billed, catalog-estimated, or mixed
+cost basis.
 
 ### 6. Enforce one shared root budget
 
 Create the root owner, inherit it through descendants, charge complete observed
-attempts, track spend, and stop before the next model or child-skill action once
-exhausted.
+attempts, and stop before the next model or child-skill action once exhausted.
+USD spend continues to come from the run projection in slice 5.
 
-Prototype evidence: `giodl73-repo/openclaw#86` and `#87` prove the owner and
-live token charging. Enforcement and USD spend remain to be proved.
+Consolidated proof: [giodl73-repo/openclaw#93](https://github.com/giodl73-repo/openclaw/pull/93),
+including durable ownership, atomic charging, overshoot accounting, and both
+admission boundaries.
 
 Direct tool-dispatch parity, `skill.used` read diagnostics, richer query
 presentation, and ordered steps can follow independently. They are not required
