@@ -1,5 +1,5 @@
 ---
-title: Skill Receipts and Orchestration
+title: Agent Skills Metadata for Outcomes and Execution
 authors:
   - Gio Lodi
 created: 2026-07-13
@@ -9,14 +9,14 @@ issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 ---
 
-# Proposal: Skill Receipts and Orchestration
+# Agent Skills Metadata for Outcomes and Execution
 
 ## Summary
 
-Add a small, portable skill declaration and an OpenClaw-native evidence model
-so operators can see which exact skill ran, what its tools proved, how many
-tokens and US dollars it consumed, and whether it stayed within a shared
-orchestration budget, without introducing a second workflow engine.
+Add a small portable metadata vocabulary for the outcomes a skill may produce,
+the other skills it may use, and its isolation needs. Agent implementations can
+combine those author hints with runtime evidence, lineage, spend, and policy
+without introducing a workflow engine into the Agent Skills format.
 
 ## Motivation
 
