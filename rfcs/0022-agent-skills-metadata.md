@@ -48,8 +48,10 @@ orchestration budget policy. This RFC depends on the composition and lifecycle
 boundaries in [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27) when a
 Claw is present; it does not duplicate Claw installation, update, or removal.
 
-The first orchestration milestone is not a general step engine. It is one
-audited, measurable child skill call with honest spend and enforceable limits.
+The first workflow milestone is not a new step engine. OpenClaw already has
+Lobster for typed pipelines and TaskFlow for durable lifecycle. The missing
+work is to connect those primitives to policy-filtered OpenClaw actions, then
+make managed skill calls measurable with honest spend and enforceable limits.
 
 An operator should be able to answer:
 
@@ -601,9 +603,11 @@ Standalone skills remain portable, implementations may ignore the extension,
 and Claws continue to own packaging and lifecycle. A later standards proposal
 can promote the fields after real interoperability proof.
 
-Finally, the proposal stops at one measurable, budgeted child call. Ordered
-steps and richer orchestration can reuse the same primitives later if demand
-justifies them; they do not need to be accepted to make skills auditable now.
+Finally, the proposal does not add workflow syntax to Agent Skills metadata.
+OpenClaw can use Lobster for steps, branching, approvals, and resume; TaskFlow
+for durable identity, status, waits, and lineage; and existing sessions and
+tool policy for execution. Managed skill calls can then reuse the receipt and
+accounting contract in this RFC rather than introducing a second harness.
 
 ## Implementation plan
 
@@ -611,72 +615,43 @@ The prototype series deliberately proved assumptions one at a time. An
 upstream-shaped implementation should consolidate them into coherent vertical
 slices rather than preserve every intermediate state.
 
-### 1. Record and query typed receipts
+### 1. Record business work
 
-Carry typed receipts through successful tool results, record them in existing
-trajectory data, and support the first business-type query. Prove
-`payment.authorized` with an authorization code and prove that failed calls
-record no success receipt.
+Carry typed receipts through successful tool results, associate a session with
+one business record, and make both searchable. This proves that an operator can
+find a case, count outcomes by type, and inspect evidence such as a payment
+authorization code.
 
-Consolidated proof: [giodl73-repo/openclaw#88](https://github.com/giodl73-repo/openclaw/pull/88).
+Consolidated proof: [giodl73-repo/openclaw#97](https://github.com/giodl73-repo/openclaw/pull/97).
 
-### 2. Add audited session regarding
+### 2. Manage skill invocation
 
-Set, replace, clear, and read one primary session association; audit real
-changes. Snapshot the active association onto later receipts and support exact
-identity filters.
+Consume the portable metadata in a real invocation path. Record exact skill
+identity, lifecycle, and parent/child lineage while reusing existing OpenClaw
+session and policy boundaries.
 
-Consolidated proof: [giodl73-repo/openclaw#89](https://github.com/giodl73-repo/openclaw/pull/89).
+Consolidated proof: [giodl73-repo/openclaw#98](https://github.com/giodl73-repo/openclaw/pull/98).
 
-### 3. Consume skill execution hints in explicit invocation
+### 3. Account for work over time
 
-Parse and normalize `outcomes`, `uses-skills`, and `isolation` with a real
-consumer. Record explicit invocation lifecycle and exact skill identity. Do
-not land an inert metadata contract with no production path.
+Report normalized tokens and captured USD cost, enforce one inherited root
+budget, and reconstruct the retained business thread without double counting
+shared runs.
 
-Consolidated proof: [giodl73-repo/openclaw#90](https://github.com/giodl73-repo/openclaw/pull/90),
-including the production consumer for the friendly string hints and the exact
-full skill digest.
+Consolidated proof: [giodl73-repo/openclaw#99](https://github.com/giodl73-repo/openclaw/pull/99).
 
-### 4. Invoke a declared child skill with lineage
+### 4. Reuse OpenClaw's workflow primitives
 
-Run one named declared child through existing child-session primitives. Record
-parent invocation and run lineage and enforce `isolation: required`.
+Let embedded Lobster pipelines invoke policy-filtered OpenClaw tools in the
+current session. Carry the TaskFlow id into Lobster and derive stable per-step
+idempotency keys, while TaskFlow continues to own durable workflow lifecycle.
 
-Consolidated proof: [giodl73-repo/openclaw#91](https://github.com/giodl73-repo/openclaw/pull/91).
+Consolidated proof: [giodl73-repo/openclaw#100](https://github.com/giodl73-repo/openclaw/pull/100).
 
-### 5. Report run and orchestration spend
-
-Report normalized tokens and captured USD cost per run, model, skill revision,
-and orchestration. Preserve shared versus exclusive attribution and aggregate
-each run once.
-
-Consolidated proof: [giodl73-repo/openclaw#92](https://github.com/giodl73-repo/openclaw/pull/92),
-including captured USD cost and provider-billed, catalog-estimated, or mixed
-cost basis.
-
-### 6. Enforce one shared root budget
-
-Create the root owner, inherit it through descendants, charge complete observed
-attempts, and stop before the next model or child-skill action once exhausted.
-USD spend continues to come from the run projection in slice 5.
-
-Consolidated proof: [giodl73-repo/openclaw#93](https://github.com/giodl73-repo/openclaw/pull/93),
-including durable ownership, atomic charging, overshoot accounting, and both
-admission boundaries.
-
-Two follow-on proofs demonstrate lightweight operational memory without
-expanding the metadata contract:
-
-- [giodl73-repo/openclaw#95](https://github.com/giodl73-repo/openclaw/pull/95)
-  finds durable sessions by exact business-record identity.
-- [giodl73-repo/openclaw#96](https://github.com/giodl73-repo/openclaw/pull/96)
-  reconstructs one selected thread's outcomes, evidence, execution lineage,
-  usage, and cost from retained OpenClaw facts.
-
-Direct tool-dispatch parity, `skill.used` read diagnostics, richer query
-presentation, and ordered steps can follow independently. They are not required
-to validate the first managed child-call contract.
+This fourth slice proves the integration seam with tool steps. The next narrow
+slice is managed skill invocation from a Lobster step, with direct correlation
+to invocation records, receipts, usage, and the shared budget. Richer query
+presentation can follow independently.
 
 ## Acceptance criteria
 
@@ -716,15 +691,16 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - observed receipts provide evidence for completion gates;
 - normalized usage and shared budgets provide spend controls.
 
-After the first managed child-call and budget contracts are accepted, an agent
-implementation or Claw policy may add a small durable ordered-step object. A
-step can reference a skill and an observed outcome while reusing the same
-invocation, session, evidence, usage, cost, and budget primitives.
+OpenClaw does not need a second durable ordered-step object. TaskFlow already
+owns flow identity, state, waits, revisions, and linked child tasks. Lobster
+already supplies typed JSON pipelines, conditions, retries, branching,
+approvals, and resume. A Lobster step can reference an OpenClaw tool today and,
+next, a managed skill invocation while reusing the same session, evidence,
+usage, cost, budget, and outcome primitives.
 
-That makes ordered steps, conditions, retries, model choices, parallel fan-out,
-joins, loops, reservations, and computed gates natural incremental additions
-rather than a new execution system. Those workflow semantics remain later work
-and do not belong in this first metadata contract.
+Fan-out, joins, model selection, reservations, and computed gates can evolve in
+those existing layers. They remain runtime capabilities, not portable
+`SKILL.md` metadata.
 
 ## Prior art and dependencies
 
