@@ -1,5 +1,5 @@
 ---
-title: Auditable Skill Invocation and Managed Skill Runs
+title: Skill Receipts and Orchestration
 authors:
   - Gio Lodi
 created: 2026-07-13
@@ -9,578 +9,271 @@ issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 ---
 
-# Proposal: Auditable Skill Invocation and Managed Skill Runs
+# Proposal: Skill Receipts and Orchestration
 
 ## Summary
 
-Add an incremental, OpenClaw-native path from observing skill use to running a
-small ordered set of skill steps. OpenClaw first records explicit skill
-invocations and model reads without changing execution. Later phases enrich the
-invocation record, add one canonical harness invocation primitive, allow one
-skill to invoke another, and finally introduce durable sequential skill runs.
-Every phase is independently useful and preserves the semantics established by
-the phase before it.
+Add a small OpenClaw-native receipt primitive, then use it as the foundation
+for auditable skill orchestration.
+
+A successful tool call can assert one or more typed receipts such as
+`inventory.sent`, `payment.authorized`, or `invoice.paid`. The tool or plugin
+owns the meaning and payload of each type. OpenClaw owns execution identity,
+timestamps, session and run correlation, model and usage correlation,
+sanitization, storage, and query.
+
+Orchestration comes later. Once receipts can be recorded and queried, a skill
+run can use them as evidence that a step completed. OpenClaw can then add
+ordered steps, child skill invocation, per-step model selection, and budgets
+without introducing a second execution system.
 
 ## Motivation
 
-Skills are an important OpenClaw extension surface, but today an operator cannot
-reliably answer basic questions about their use:
+OpenClaw already knows when tools run, which session and model are active, and
+how many tokens a provider turn uses. What it does not have is a small domain
+fact that says what a successful call accomplished.
 
-- Was a skill explicitly invoked, or did the model only read its instructions?
-- Which installed skill source and content version were used?
-- Which session, turn, model, and tools were involved?
-- Did one skill request another skill?
-- How much usage belongs to the surrounding turn, and when can it be attributed
-  to one isolated skill step?
-- If several skill actions form one task, which action is current, complete, or
-  failed?
+A generic tool result can say that an API call returned successfully, but the
+useful receipt may be more specific:
 
-Existing transcripts and tool events contain parts of those answers, but they
-do not provide a stable skill-level identity. Inferring invocation after the
-fact from a file path is also semantically weak: reading `SKILL.md` makes the
-instructions available to the model, but it does not prove that the model used
-them or that OpenClaw explicitly invoked the skill.
+- inventory was sent;
+- a payment was authorized;
+- an invoice was paid;
+- a message was accepted by a provider;
+- a deployment was created.
 
-The first requirement is therefore truthful observation, not orchestration.
-OpenClaw should distinguish an explicit invocation from a model read, attach
-the skill identity already known by the loader, and export the resulting event
-through its existing trajectory surface. Once that contract is stable, the
-same invocation identity can support parent-child calls and managed steps
-without introducing a separate execution model.
+For a payment, the provider authorization code is stronger evidence than a
+model summary. For inventory, the shipment or transfer identifier is the
+useful receipt. OpenClaw should preserve those facts without defining payment,
+inventory, or invoicing schemas in core.
 
-This staged approach also avoids prematurely committing OpenClaw to a general
-workflow language. Sequential skill runs, isolated child execution, model
-selection, budgets, parallelism, and conditions have different correctness and
-security requirements. They should be added only when the preceding primitive
-has shipped and can be validated independently.
+Typed receipts also give later orchestration a clean completion boundary. A
+step can wait for `payment.authorized` without parsing prose or treating every
+successful tool call as equivalent.
 
 ## Goals
 
-- Distinguish explicit skill invocation from model access to skill instructions.
-- Give every explicit invocation a stable identity within its session and turn.
-- Record the resolved skill name, source, and content version without rereading
-  mutable skill state after the event.
-- Export skill audit events through OpenClaw's existing sanitized trajectory
-  path.
-- Correlate explicit invocation with terminal turn outcome, duration, model,
-  and usage while describing the attribution scope honestly.
-- Establish one harness-owned skill invocation primitive used by explicit user
-  commands and future internal callers.
-- Allow one skill invocation to request another without widening permissions or
-  silently changing execution environments.
-- Add a durable, ordered skill-run model only after invocation semantics are
-  stable.
-- Preserve compatibility at every phase so that an implementation can stop
-  after any accepted phase and still provide useful behavior.
+- Let a successful tool result assert typed, filterable receipts.
+- Keep receipt meaning and type-specific data owned by the tool or plugin.
+- Add OpenClaw-owned execution correlation when a receipt is recorded.
+- Reuse existing tool results, sessions, trajectories, provider usage, child
+  sessions, and model selection primitives.
+- Add orchestration one capability at a time after receipt recording is useful
+  on its own.
+- Track token usage honestly: shared turn usage remains shared; isolated child
+  runs may be attributed exclusively.
 
-## Non-Goals
+## Non-goals
 
-- Defining a general workflow language.
-- Adding expressions, conditional routing, data queries, or computed gates.
-- Adding parallel fan-out, joins, loops, or dynamic step generation.
-- Assigning exclusive per-skill token usage when multiple skills share one
-  agent turn.
-- Treating every `SKILL.md` read as proof that the skill was invoked.
-- Capturing full prompts, skill inputs, outputs, tool arguments, or secrets by
-  default.
-- Changing skill discovery, installation, eligibility, precedence, or prompt
-  formatting in the first audit phase.
-- Allowing skill metadata to widen sandbox, tool, model, or credential policy.
-- Replacing sessions, trajectories, background tasks, or child-agent runtime.
-- Requiring all phases to ship in one implementation series.
+- A business schema registry in OpenClaw core.
+- A payment ledger, inventory system, or invoice state machine.
+- A new general workflow language.
+- Expressions, conditions, loops, joins, or dynamic fan-out in the initial
+  implementation.
+- Inferring business completion from model prose.
+- Claiming exclusive per-skill token usage when several skills share one turn.
+- Replacing OpenClaw sessions, trajectories, tools, plugins, or child agents.
 
-## Proposal
+## Receipt contract
 
-### Design principles
+The initial contract is intentionally small.
 
-The feature follows five rules.
-
-1. **Observe before managing.** The first phase records existing behavior and
-   does not add a new execution path.
-2. **Name events truthfully.** An explicit invocation and a model read are
-   different facts and remain different event types.
-3. **Snapshot identity at the boundary.** Audit records carry the resolved
-   source and version known when the skill enters the turn. Export does not
-   infer identity from later filesystem state.
-4. **Reuse one invocation identity.** User commands, harness calls, nested
-   calls, and managed steps converge on the same invocation receipt.
-5. **Add one execution capability at a time.** Same-turn calls precede durable
-   runs; sequential runs precede isolated steps; isolated steps precede
-   exclusive usage attribution and budgets.
-
-```mermaid
-flowchart LR
-    A["Phase 1\nobserve skill use"]
-    B["Phase 2\nenrich invocation receipts"]
-    C["Phase 3\ncanonical harness invocation"]
-    D["Phase 4\nparent and child skill calls"]
-    E["Phase 5\ndurable sequential skill runs"]
-    F["Later\nisolation, models, budgets"]
-
-    A --> B --> C --> D --> E --> F
+```ts
+type SkillReceipt = {
+  type: string;
+  version?: number;
+  subject?: {
+    type: string;
+    id: string;
+  };
+  data?: Record<string, unknown>;
+};
 ```
 
-Each arrow is a compatibility boundary. A later phase extends the record; it
-does not reinterpret events emitted by an earlier phase.
+`type` is the primary filter key. It should be namespaced enough to remain
+meaningful outside one tool, for example `payment.authorized` rather than
+`completed`.
 
-### Phase 1: Observe skill use
+`version` belongs to the producer's schema. OpenClaw does not interpret it.
 
-Phase 1 adds two audit facts to the existing trajectory event stream.
+`subject` identifies the business object when one exists. It supports useful
+cross-type queries without requiring a global object model.
 
-#### Explicit invocation
-
-`skill.invocation.started` records that OpenClaw explicitly supplied a resolved
-skill for use in a turn. Initial explicit sources include a user skill command
-and a harness invocation path. The event is emitted before the skill content is
-supplied to the turn.
+`data` contains type-specific evidence. For example:
 
 ```json
 {
-  "type": "skill.invocation.started",
-  "invocationId": "skillinv_01...",
-  "sessionId": "session_01...",
-  "turnId": "turn_01...",
-  "timestamp": "2026-07-13T20:00:00.000Z",
-  "trigger": "user-command",
-  "skill": {
-    "name": "security-review",
-    "version": "sha256:8db4...",
-    "source": "workspace"
+  "type": "payment.authorized",
+  "version": 1,
+  "subject": {
+    "type": "invoice",
+    "id": "inv-123"
+  },
+  "data": {
+    "authorizationCode": "auth-456",
+    "providerPaymentId": "pay-789"
   }
 }
 ```
 
-The resolved source should use the canonical bounded source vocabulary already
-owned by skill loading. The content version should use the existing skill
-prompt version when available. Absence of an optional version does not block
-the invocation, but it remains visible in the record.
-
-At the terminal boundary of that turn, OpenClaw emits exactly one corresponding
-terminal event:
-
-- `skill.invocation.completed`
-- `skill.invocation.failed`
-- `skill.invocation.cancelled`
-- `skill.invocation.timed_out`
-
-The terminal event repeats the invocation identity and records the turn
-outcome. Phase 1 does not claim that every tool action between the two events
-was caused by the skill.
-
-#### Model access
-
-`skill.accessed` records a successful model-initiated read of a `SKILL.md` that
-belongs to the resolved skill snapshot for the current turn.
-
-```json
-{
-  "type": "skill.accessed",
-  "sessionId": "session_01...",
-  "turnId": "turn_01...",
-  "timestamp": "2026-07-13T20:00:03.000Z",
-  "trigger": "model-read",
-  "skill": {
-    "name": "security-review",
-    "version": "sha256:8db4...",
-    "source": "workspace"
-  }
-}
-```
-
-This event is observational and does not create an invocation ID. It means that
-the instructions were successfully read, not that the model followed them.
-
-A read is eligible for this event only when OpenClaw can match the successful
-read to a skill in the current resolved snapshot. An arbitrary path ending in
-`SKILL.md` is insufficient. Failed or blocked reads retain their existing tool
-events and do not emit `skill.accessed`.
-
-#### Phase 1 persistence and export
-
-Phase 1 writes no new canonical state store. Events use the existing runtime
-trajectory path and its retention policy. Sanitized trajectory export includes
-the new events and applies the same local-path and sensitive-data redaction as
-other trajectory events.
-
-The initial event contains no full skill content, prompt text, tool arguments,
-environment values, or file contents. Its purpose is identity and correlation.
-
-#### Phase 1 acceptance criteria
-
-- An explicit user skill command emits one started event and exactly one
-  terminal event with the same invocation ID.
-- A successful model read of a resolved skill emits `skill.accessed` and does
-  not emit an explicit invocation event.
-- A failed, blocked, or unrelated file read does not emit `skill.accessed`.
-- Skill source and version come from the turn's resolved skill snapshot.
-- Trajectory export retains the events while preserving existing redaction.
-- Disabling trajectory capture preserves current skill behavior.
-- Existing skill prompts and model-visible skill listings remain byte-stable.
-
-### Phase 2: Enrich invocation receipts
-
-Phase 2 adds a terminal `SkillInvocationReceipt` assembled from facts OpenClaw
-already knows at stable lifecycle boundaries.
-
-```ts
-type SkillInvocationReceipt = {
-  invocationId: string;
-  sessionId: string;
-  turnId: string;
-  parentInvocationId?: string;
-  skill: {
-    name: string;
-    version?: string;
-    source: string;
-  };
-  trigger: "user-command" | "harness" | "skill" | "managed-step";
-  model?: {
-    requested?: string;
-    effectiveProvider?: string;
-    effectiveModel?: string;
-  };
-  outcome: "completed" | "failed" | "cancelled" | "timed_out";
-  startedAt: string;
-  completedAt: string;
-  durationMs: number;
-  usage?: {
-    scope: "turn" | "step";
-    attribution: "shared" | "exclusive";
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-    totalTokens?: number;
-  };
-  trajectoryRef?: string;
-};
-```
-
-The shape above is illustrative TypeScript. The implementation should use the
-canonical OpenClaw usage and model reference types rather than introduce
-parallel token or model vocabularies.
-
-When an invocation shares a normal agent turn, usage is recorded as
-`scope: "turn"` and `attribution: "shared"`. It must not be presented as the
-exclusive cost of the skill. If several skills are invoked or accessed in one
-turn, each explicit receipt may reference the same shared turn usage.
-
-Full inputs and outputs remain outside the default receipt. A later metadata
-extension may allow a skill to declare bounded audit labels or named evidence,
-but metadata cannot disable the foundational identity and lifecycle events or
-request capture of secret values.
-
-#### Phase 2 acceptance criteria
-
-- Receipts are derived from lifecycle facts rather than post-run filesystem
-  inference.
-- Requested and effective models remain distinguishable when both are known.
-- Shared turn usage is never labeled exclusive.
-- Missing provider usage produces an omitted or explicitly unavailable usage
-  field rather than a zero-cost claim.
-- Receipt export applies existing trajectory redaction.
-
-### Phase 3: Add one harness invocation primitive
-
-Phase 3 introduces one canonical harness operation for explicit skill
-invocation. The exact public API name is an implementation decision; this RFC
-uses `invokeSkill` for clarity.
-
-```ts
-await harness.invokeSkill({
-  skillName: "security-review",
-  additionalInstructions: "Review the current repository.",
-  parentInvocationId,
-});
-```
-
-The operation:
-
-1. resolves the skill from the current eligible skill snapshot;
-2. snapshots its canonical identity and prompt version;
-3. emits `skill.invocation.started`;
-4. uses OpenClaw's canonical explicit skill-invocation formatting;
-5. runs in the current session, turn policy, model, sandbox, and tool boundary;
-6. emits exactly one terminal event and receipt.
-
-The existing explicit user command should converge on this primitive. OpenClaw
-should not maintain separate invocation semantics for user commands and
-internal harness callers.
-
-Phase 3 remains same-session and same-turn-policy. It does not spawn a child
-agent, change the model, reserve a budget, or persist a managed run.
-
-#### Phase 3 acceptance criteria
-
-- The explicit user command and direct harness call produce the same event and
-  receipt contract.
-- Resolution fails before invocation starts when the skill is missing,
-  ineligible, disabled for the requested surface, or ambiguous.
-- Invocation cannot widen the current tool, sandbox, credential, or model
-  policy.
-- Existing skill formatting remains the single content assembly path.
-
-### Phase 4: Allow parent and child skill calls
-
-Phase 4 allows an active explicit invocation to request another skill through
-the canonical harness primitive.
-
-An optional metadata declaration advertises the skills that an author expects
-to call:
-
-```yaml
-metadata:
-  openclaw:
-    invokes:
-      - repository-inventory
-      - security-review
-```
-
-`invokes` is declarative permission and discovery metadata. Listing a skill
-does not run it. Mentioning another skill in prose also does not create an
-executable dependency.
-
-A child call records `parentInvocationId` and uses trigger `skill`. The initial
-implementation runs under the same session, effective model, sandbox, and tool
-policy as its parent.
-
-```text
-skillinv_parent: repository-audit
-└── skillinv_child: repository-inventory
-```
-
-OpenClaw enforces:
-
-- a bounded maximum invocation depth;
-- cycle detection over the active invocation ancestry;
-- eligibility and declared-invocation checks;
-- no tool, sandbox, credential, or model-policy widening;
-- one terminal receipt for every started child invocation.
-
-The initial cycle identity is the resolved skill identity within the active
-ancestry. A skill cannot recursively call itself through aliases or repeated
-names that resolve to the same installed skill.
-
-#### Phase 4 acceptance criteria
-
-- A child receipt references its parent invocation.
-- Undeclared, missing, ineligible, cyclic, or over-depth calls fail before the
-  child invocation starts.
-- Parent failure or cancellation cannot leave an untracked active child.
-- Child calls inherit current execution policy without widening privileges.
-
-### Phase 5: Add durable sequential skill runs
-
-Phase 5 introduces a `SkillRun`: one durable owner for an ordered list of
-managed skill steps. This is the first phase that manages progress across
-invocations.
-
-A skill may point to a companion run descriptor from its OpenClaw metadata:
-
-```yaml
-metadata:
-  openclaw:
-    run:
-      version: 1
-      source: skill-run.yaml
-```
-
-The first descriptor supports only a static ordered list:
-
-```yaml
-version: 1
-name: repository-audit
-steps:
-  - id: inventory
-    skill: repository-inventory
-  - id: review
-    skill: security-review
-```
-
-The descriptor does not support conditions, expressions, parallelism, loops,
-dynamic steps, per-step models, or budgets in this phase.
-
-OpenClaw validates the complete descriptor before starting the run. Validation
-includes unique step IDs, resolvable skills, eligible invocation relationships,
-bounded step count, and absence of recursive run references.
-
-The durable model records at least:
-
-```ts
-type SkillRun = {
-  runId: string;
-  ownerSessionId: string;
-  rootInvocationId: string;
-  descriptorVersion: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
-  currentStepId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type SkillRunStep = {
-  runId: string;
-  stepId: string;
-  position: number;
-  skillName: string;
-  skillVersion?: string;
-  invocationId?: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
-};
-```
-
-Canonical managed state belongs in OpenClaw's shared SQLite state database.
-Trajectory events remain the detailed diagnostic stream and receipts retain
-their trajectory references. The runtime must not introduce a second JSON or
-JSONL state store for managed progress.
-
-The first failure policy is stop-on-failure. Completed steps remain recorded;
-pending steps do not start. Resume may retry the failed step only when an
-operator explicitly requests it and OpenClaw can preserve the prior attempt's
-receipt.
-
-#### Phase 5 acceptance criteria
-
-- The complete static descriptor validates before the first step starts.
-- Steps start in declared order and at most one step runs at a time.
-- Every running step has a corresponding explicit invocation and receipt.
-- A failed step prevents later steps from starting.
-- Restart recovery distinguishes an active step from an interrupted step and
-  never silently marks an interrupted invocation successful.
-- Status can identify the current step and link to completed receipts.
-- Replacing or editing a skill after run start does not rewrite the version
-  recorded for an already-started step.
-
-### Later extensions
-
-Later RFC amendments or follow-up RFCs may add:
-
-1. isolated child execution for one step;
-2. requested and effective per-step model selection;
-3. exclusive step-level usage receipts;
-4. run and step token limits;
-5. retry policy and idempotency metadata;
-6. bounded parallel steps and joins;
-7. approval holds;
-8. conditional steps and expressions.
-
-These are deliberately ordered. Per-step model and token accounting become
-truthful only after a step owns an isolated child run. Parallelism requires
-budget reservation, cancellation, and join semantics that sequential execution
-does not need. Expressions require a separate language, validation, and data
-access contract.
-
-### Security and privacy
-
-Skill audit data can expose user intent and local environment details even when
-it contains no prompt text. Implementations must therefore follow the existing
-trajectory access, retention, redaction, and export boundaries.
-
-The foundational event records bounded identifiers and lifecycle facts. It
-does not record:
-
-- skill content;
-- full user prompts or additional instructions;
-- tool arguments or results;
-- environment values or credentials;
-- arbitrary local paths;
-- unbounded metadata supplied by a skill.
-
-Local skill paths may be used internally for matching a successful read to the
-resolved snapshot, but exported events should identify the skill by canonical
-source metadata rather than expose the local path.
-
-Nested invocation and managed-step metadata cannot grant permissions. Runtime
-policy is the intersection of the caller's current policy, the target skill's
-eligibility, and administrator policy. A child call that requires unavailable
-capabilities fails before it starts.
-
-### Compatibility and rollout
-
-Skill authors do not need to change existing `SKILL.md` files for Phases 1-3.
-Existing skills receive audit identity when OpenClaw can resolve them from the
-current snapshot.
-
-Unknown OpenClaw metadata keys remain subject to the existing forward-
-compatibility behavior. Implementations must not expose `invokes` or `run`
-metadata to older runtimes as an assurance that nested calls or managed runs
-will occur.
-
-The event schema should be additive and versioned through the existing
-trajectory schema conventions. Consumers must tolerate unknown event types and
-missing optional fields.
-
-Each phase should ship behind its own implementation readiness decision. The
-RFC does not require a persistent feature flag once a phase is stable, but an
-experimental gate may be appropriate for the first managed-run implementation.
-
-## Rationale
-
-### Why invocation and access are separate
-
-Treating every `SKILL.md` read as an invocation would produce attractive but
-false audit results. Models may inspect several skills before selecting an
-approach, reread a version after a prompt refresh, or read instructions without
-following them. `skill.accessed` preserves the useful observation without
-claiming causality.
-
-Explicit invocations have a stronger boundary because OpenClaw intentionally
-supplies one resolved skill through a known command or harness operation. That
-boundary can support lifecycle events and receipts.
-
-### Why audit events precede metadata
-
-Metadata without runtime evidence describes author intent, not executed
-behavior. Starting with events establishes which facts OpenClaw can observe
-reliably. Later metadata can constrain or enrich execution without becoming the
-source of truth for what occurred.
-
-### Why one harness primitive precedes nested calls
-
-If user commands, internal callers, and managed steps each implement skill
-resolution and prompt assembly independently, their audit and security
-semantics will drift. Converging them first makes nested invocation a new caller
-of an existing primitive instead of a second execution system.
-
-### Why sequential runs precede richer orchestration
-
-A static ordered list is sufficient to prove durable run identity, step
-receipts, restart behavior, and failure handling. Parallelism, conditional
-routing, loops, and expressions add independent scheduling and safety
-questions. Deferring them keeps the initial managed surface small enough to
-test against real OpenClaw sessions and trajectories.
-
-### Why shared-turn usage is not divided among skills
-
-Provider usage is generally reported for a request or turn, not for individual
-instruction sources inside that request. Dividing shared usage by skill count,
-text length, or tool activity would produce invented precision. Exclusive
-attribution becomes valid when an isolated step owns the provider run.
-
-### Why managed progress uses SQLite
-
-Audit trajectories and managed state have different jobs. Trajectories provide
-detailed diagnostic history. A managed run needs indexed, transactional state
-for ownership, current step, cancellation, and restart recovery. OpenClaw's
-shared SQLite state database is the canonical location for that state; a new
-sidecar state format would create competing recovery and migration semantics.
+The producer supplies the receipt. The harness adds the record envelope:
+
+- record ID;
+- timestamp;
+- session and run ID;
+- tool name and tool-call ID;
+- effective provider and model when available;
+- skill invocation or step ID when available;
+- usage reference or usage scope when available.
+
+These correlation fields are harness facts and cannot be supplied by the
+receipt producer.
+
+## Ownership boundary
+
+The tool or plugin owns:
+
+- receipt type;
+- schema version;
+- subject meaning;
+- type-specific evidence;
+- the decision that the business event actually occurred.
+
+OpenClaw owns:
+
+- accepting receipts only from completed successful calls;
+- correlation and timestamps;
+- sanitization and redaction;
+- retention and export;
+- filtering and query;
+- later skill-run and step linkage;
+- usage scope and token accounting.
+
+This keeps OpenClaw generic while still making receipts operationally useful.
+
+## Incremental implementation
+
+### Phase 1: Carry receipts on tool results
+
+Add an optional receipt collection to the existing structured tool result.
+Preserve it through after-tool hooks and tool-result middleware.
+
+This phase does not add storage or orchestration. It proves the producer
+contract and compatibility boundary.
+
+Prototype: `giodl73-repo/openclaw#66`.
+
+### Phase 2: Record successful receipts
+
+Project valid receipts from successful tool results into OpenClaw's existing
+trajectory stream. Record a stable event such as `audit.receipt`; keep the
+business receipt type in event data as the primary domain filter.
+
+Trajectory already supplies timestamp, session, run, provider, and model
+correlation. The receipt projection adds tool name and tool-call ID. Failed
+calls do not produce receipts.
+
+Prototype: `giodl73-repo/openclaw#67`.
+
+### Phase 3: Query receipts
+
+Add a narrow query surface over recorded receipts. The first filters should be:
+
+- receipt type;
+- subject type and ID;
+- session or run ID;
+- tool name;
+- time range.
+
+This phase should reuse the existing trajectory or state storage selected by
+OpenClaw. It should not introduce a separate business ledger.
+
+### Phase 4: Correlate skills and usage
+
+When OpenClaw has an explicit skill invocation identity, attach it to receipts
+produced during that invocation. Record the effective model and link existing
+provider usage.
+
+Usage must declare its scope:
+
+- `shared` when several skills or actions use the same agent turn;
+- `exclusive` only when a step runs in an isolated child session whose usage
+  can be measured independently.
+
+This phase enables reporting token spend by run without inventing token data.
+
+### Phase 5: Manage ordered steps
+
+Add a small durable run object with ordered steps. A step may complete from a
+tool result and its receipts. Initial step execution is sequential.
+
+A step records:
+
+- step ID and run ID;
+- requested skill or action;
+- expected receipt type when applicable;
+- status and terminal outcome;
+- child session ID when isolated;
+- model and usage scope;
+- emitted receipt references.
+
+No expressions or arbitrary conditions are required for this phase.
+
+### Phase 6: Invoke another skill
+
+Allow one managed step to invoke another skill through the same OpenClaw
+session and child-agent primitives used elsewhere. The harness may select a
+different model for an isolated child step and records its usage separately.
+
+Parent and child calls do not widen tool, sandbox, credential, or model policy.
+
+### Later: Budgets and richer orchestration
+
+Once isolated step usage is reliable, a run or step may set a token budget.
+Budget enforcement should reuse OpenClaw's existing usage normalization and
+goal/session budget primitives.
+
+Expressions, parallel fan-out, joins, retries, and computed gates can be
+considered later. They are not prerequisites for useful receipts or ordered
+skill runs.
+
+## Failure behavior
+
+- A failed tool call emits no success receipt.
+- A malformed receipt is ignored rather than recorded as evidence.
+- Receipt recording failure must not rewrite the underlying tool outcome.
+- A step waiting for a receipt remains incomplete if the expected receipt was
+  not recorded.
+- Usage is omitted or marked shared when exclusive attribution is unavailable.
+- Redaction applies before durable recording and export.
+
+## Acceptance criteria
+
+The first implementation series is successful when:
+
+- a tool can return `payment.authorized` with an authorization code;
+- after-tool hooks and middleware preserve that receipt;
+- a successful call records a correlated receipt event;
+- a failed call records no success receipt;
+- recorded receipts can be filtered by their business `type`;
+- existing trajectory sanitization and retention apply;
+- no new business-specific schema or workflow engine is added.
+
+The first orchestration series is successful when:
+
+- a durable run can execute a small ordered step list;
+- a step can reference receipts emitted during its execution;
+- a child skill can run through existing OpenClaw child-session primitives;
+- model and token usage are recorded with honest shared or exclusive scope;
+- a token budget can stop an isolated step without changing receipt semantics.
 
 ## Unresolved questions
 
-- Should Phase 1 terminal events attach to the explicit invocation directly or
-  reference a canonical turn-terminal outcome record?
-- Which existing bounded skill-source vocabulary should appear in exported
-  events, and how should plugin-bundled skills be represented?
-- Should `skill.accessed` deduplicate repeated reads of the same skill version
-  within one turn, or record every successful access?
-- What maximum nested invocation depth provides useful composition without
-  encouraging recursive agent behavior?
-- Should `invokes` be required for every child call or support an administrator
-  policy that allows any eligible skill?
-- What is the minimum safe restart contract for a same-session managed step
-  whose process ended after provider completion but before the terminal receipt
-  was committed?
-- Should managed run descriptors remain companion files or eventually become a
-  separate installed artifact type?
-- Which later capabilities belong in amendments to this RFC, and which should
-  require separate RFCs?
+- Should the public tool-result property be named `receipts`, `audit`, or
+  `records`?
+- Should the first query surface read trajectory exports directly or project
+  receipts into OpenClaw's shared SQLite state?
+- Which explicit skill invocation boundary should provide the first stable
+  skill invocation ID?
+- Which receipt fields require field-level redaction beyond existing payload
+  sanitization?
