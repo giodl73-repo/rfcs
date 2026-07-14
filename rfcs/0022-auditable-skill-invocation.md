@@ -6,7 +6,7 @@ created: 2026-07-13
 last_updated: 2026-07-13
 status: draft
 issue:
-rfc_pr:
+rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 ---
 
 # Proposal: Auditable Skill Invocation and Managed Skill Runs
