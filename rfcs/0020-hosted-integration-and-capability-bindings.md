@@ -3,7 +3,7 @@ title: Hosted Owner Bindings and Managed Dispatch
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
@@ -16,11 +16,12 @@ rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
 Managed hosts should integrate with OpenClaw through the semantic owner that
 already understands each operation.
 
-V1 follows one decision tree:
+V1 applies one decision tree inside each isolated Gateway trust domain:
 
 ```text
-Can the host use an existing Gateway, Channel, plugin, proxy, or service-mesh
-surface?
+For one Gateway cell:
+  Can the host use an existing Gateway, Channel, plugin, proxy, or
+  service-mesh surface?
   -> yes: use that native surface
   -> no:
        Can OpenClaw still prepare and directly dispatch the owner's request?
@@ -49,12 +50,22 @@ A namespaced host bundle may package implementations for these independently
 owned contracts. Hosting Profiles, Status, and Doctor aggregate their evidence.
 Neither the bundle nor a carrier becomes a new semantic owner.
 
+In multi-tenant deployments, every bundle, binding, credential resolution, and
+dispatcher admission is scoped to one complete Gateway cell. This proposal
+does not add tenant isolation inside a shared Gateway or a cross-tenant
+application data plane.
+
 This proposal does not define ClawBus, a generic host API, a carrier catalog,
 or a bidirectional extension of `OpenClawTransport`.
 
 ## Thesis
 
-The isolation boundary is not the product boundary.
+Tenant isolation and product ownership are orthogonal.
+
+One tenant trust domain occupies one complete Gateway cell. Within that cell,
+the product owner still defines each semantic interface. A cell boundary does
+not justify centralizing provider, Channel, approval, lifecycle, or identity
+semantics in a host protocol.
 
 Lobster's ProxyPipe accumulated provider adaptation, credential injection,
 traffic policy, Channel delivery, approvals, lifecycle, product services, and
@@ -94,6 +105,46 @@ some of those resources:
 Most of these needs already have a canonical OpenClaw surface. The missing
 piece is not one universal host protocol. It is a small set of owner-local
 binding seams plus one optional physical dispatcher.
+
+## Deployment and Tenant Isolation
+
+This RFC adopts OpenClaw's
+[one-cell-per-tenant hosting model](https://docs.openclaw.ai/gateway/multi-tenant-hosting).
+One Gateway is one trusted operator domain. Mutually untrusted users or
+organizations run in separate complete OpenClaw instances with separate
+processes, state, credentials, workspaces, Channel accounts, Gateway tokens,
+and network isolation.
+
+The normative rules are:
+
+1. a host integration bundle is registered inside one Gateway cell;
+2. owner configuration, credentials, readiness, Status, and Doctor evidence
+   are cell-local;
+3. a hosted dispatcher or reverse session is admitted for exactly one cell and
+   cannot multiplex requests for another cell;
+4. tenant, user, session, mailbox, or route fields in request data are routing
+   or semantic inputs, not cross-cell authorization;
+5. trusted tenant and cell identity comes from authenticated deployment and
+   binding state, not from a payload selector;
+6. per-cell Channel accounts terminate in their owning cell;
+7. fleet-wide aggregation remains read-only with respect to owner authority;
+   it cannot write readiness or activate owner bindings; and
+8. a replacement cell does not inherit live owner, bundle, binding, or carrier
+   generations from the prior process; host-dependent work remains unavailable
+   until its current bindings activate.
+
+OpenClaw Fleet is a single-host lifecycle supervisor for local cells. It
+creates, inspects, starts, stops, replaces, and removes complete instances, but
+it does not proxy tenant messages or create a shared application data path. A
+higher control plane such as Lobster may place cells across machines and
+aggregate their evidence. An owner contract does not span cell boundaries:
+cross-cell placement resolves to one cell before the owner contract begins.
+Tenant portals, billing, shared ingress, and delegated administration remain
+outside this RFC.
+
+Fleet is experimental, so this RFC depends on the stable isolation invariant,
+not current `openclaw fleet` commands, flags, storage paths, or container
+profile details.
 
 ## Design Principles
 
@@ -199,10 +250,19 @@ Gateway-authenticated plugin routes are the default trusted-forwarder seam when
 the host already participates in the Gateway deployment. A Channel may define
 stronger provider-direct authentication where available.
 
+The route terminates in the cell that owns the Channel account. Shared
+cross-tenant Channel accounts or ingress routing require a separate
+Channel-owned identity and authorization design; they are not implied by host
+integration.
+
 ### Traffic governance
 
 Transparent egress governance stays in provider request policy, proxies,
 firewalls, TLS policy, service meshes, and guarded fetch.
+
+Cell network separation does not imply outbound egress governance. Fleet
+bridge networks retain outbound NAT by default, so hosted deployments still
+need explicit origin, private-route, proxy, and firewall policy.
 
 Host policy may:
 
@@ -270,6 +330,10 @@ that identity but may not override it.
 
 The dispatcher does not receive a generic identity assertion that lets it
 select a mailbox, tenant, user, provider, or credential.
+
+Cell identity is fixed by authenticated deployment and binding admission. A
+request may carry tenant context required by its semantic owner, but it cannot
+use that context to select another cell or another cell's credentials.
 
 ### Credential slots
 
@@ -383,6 +447,9 @@ It may not:
 - select mailbox, tenant, user, Channel, or model identity; or
 - retain credentials across requests or redirect hops.
 
+The dispatcher is admitted for one cell. Cell or tenant selection is not a
+per-request dispatcher operation.
+
 ### Network safety
 
 OpenClaw owns the network policy. The dispatcher enforces it where physical DNS
@@ -441,6 +508,11 @@ provider-dispatch-specific and supports:
 Existing Gateway or peer machinery may be reused internally. A host is not a
 node, an operator, or a generic Gateway service.
 
+One reverse session terminates at one admitted Gateway cell. Hosts may share
+transport infrastructure internally, but the protocol identity, credentials,
+flow control, generations, and failure domain remain cell-scoped. A shared
+connection must not become a tenant-routing API.
+
 A multipurpose carrier is deferred until a second capability proves that
 shared framing and connection management remove more complexity than they add.
 
@@ -449,7 +521,7 @@ shared framing and connection management remove more complexity than they add.
 ### Host integration bundle
 
 A host package may register one immutable, namespaced inventory of
-implementations:
+implementations inside a cell:
 
 ```jsonc
 {
@@ -484,6 +556,10 @@ The normative rules are:
 
 Future SecretRef, publication, or telemetry implementations may register in
 the same package without sharing the provider-request interface.
+
+Installing the same host package in many cells creates independent bundle
+snapshots and generations. It does not create a fleet-global activation or
+semantic registry.
 
 ### Binding selection
 
@@ -545,7 +621,34 @@ Bundle health can explain a shared root cause but cannot override a failed
 owner binding. Readiness remains fast, bounded, and non-mutating. Status and
 Doctor provide richer redacted diagnostics and repairs.
 
+These surfaces report one cell. Fleet or another host control plane may
+aggregate per-cell evidence, but aggregation is observational and cannot
+replace owner evidence, authorize cross-cell operations, or report a cell
+ready on its behalf.
+
 ## Security Model
+
+### Cell trust boundary
+
+One Gateway cell is one trusted operator domain. Session IDs, agent IDs, user
+IDs, tenant IDs, and mailbox IDs do not partition mutually untrusted users
+inside a shared Gateway.
+
+Host bindings inherit this boundary:
+
+- credentials and owner state are resolved for one cell;
+- a carrier authenticates one cell binding;
+- Channel accounts and Gateway credentials are not shared across cells by
+  default;
+- cell replacement changes the admitted runtime or carrier incarnation; and
+- cross-cell routing occurs only in an external control plane before a request
+  reaches an owner contract.
+
+The host and Fleet operator are trusted by every cell they administer. A host
+that can inspect mounts, environment, container configuration, or final
+credential headers is inside the trust boundary. Resistance to a compromised
+host requires a stronger VM, machine, or administrative boundary and is
+outside this RFC.
 
 ### Least privilege
 
@@ -688,6 +791,7 @@ reverse carrier and some adopter activations remain future proof points.
 
 | Slice | Status and evidence | Architectural result |
 | --- | --- | --- |
+| Fleet and Gateway security | Existing one-cell-per-tenant trust boundary and host-side lifecycle supervision | Capability bindings remain per-cell and do not become a shared multi-tenant Gateway or data plane |
 | Gateway and approval work | Existing canonical Gateway methods/events and native approval consumer behavior | No approval protocol or reverse callback API is needed |
 | Channel endpoint work | Existing owner routes and Gateway authentication | No generic Channel ingress protocol is needed |
 | CAPI and Substrate | Owner/adopter request preparation, exact token slots, policy intersection, and local/hosted dispatcher fixtures | Provider semantics stay out of the dispatcher |
@@ -727,6 +831,8 @@ Every owner contract supplies fixtures that prove:
 
 Hosted dispatcher conformance additionally proves:
 
+- admission is bound to one Gateway cell and payload fields cannot select
+  another cell;
 - redirect-disabled one-hop execution;
 - physical DNS and network-guard enforcement;
 - public and explicitly granted private-route behavior;
@@ -740,6 +846,8 @@ Hosted dispatcher conformance additionally proves:
 Bundle and Hosting Profile conformance proves:
 
 - one package can register several independently owned contracts;
+- the same package installed in multiple cells produces independent snapshots
+  and generations;
 - owner references resolve only compatible registrations;
 - missing or disabled registrations fail explicitly;
 - bundle health cannot override owner failure;
@@ -752,14 +860,16 @@ Transport conformance alone is insufficient.
 
 The remaining work follows deletion value rather than framework layers:
 
-1. finish paired owner/adopter migrations for Graph and remaining provider
+1. align host package admission, readiness, and status with the per-cell trust
+   boundary without depending on experimental Fleet CLI syntax;
+2. finish paired owner/adopter migrations for Graph and remaining provider
    families;
-2. activate each binding behind an explicit canary and rollback authority;
-3. project stable owner evidence through Hosting Profiles, Status, and Doctor;
-4. implement the provider-dispatch reverse session only for deployments where
+3. activate each binding behind an explicit canary and rollback authority;
+4. project stable owner evidence through Hosting Profiles, Status, and Doctor;
+5. implement the provider-dispatch reverse session only for deployments where
    proxy or direct networking cannot satisfy the dispatcher contract;
-5. delete each ProxyPipe family after its own expiry gate; and
-6. consider shared carrier extraction only after another real capability
+6. delete each ProxyPipe family after its own expiry gate; and
+7. consider shared carrier extraction only after another real capability
    demonstrates duplicated operational cost.
 
 The implementation does not need to complete a generic carrier, universal
@@ -773,6 +883,12 @@ ProxyPipe paths.
 - Defining a universal provider-adapter registry.
 - Defining one generic host method or callback API.
 - Treating a host as a node, operator, Channel, or semantic owner.
+- Treating one shared Gateway as a hostile multi-tenant authorization
+  boundary.
+- Multiplexing several tenant cells through one application-level host
+  identity or carrier session.
+- Defining a fleet scheduler, tenant portal, billing plane, shared ingress
+  router, or delegated administration system.
 - Copying Gateway, Channel, lifecycle, continuity, or AgentHarness schemas into
   a carrier envelope.
 - Requiring hosted dispatch when direct networking, a proxy, or a service mesh
@@ -801,6 +917,30 @@ that packaging boundary from becoming a central protocol.
 Hosted deployments need one admission result across many owners. Hosting
 Profiles already aggregate required and advisory criteria without taking
 ownership of the underlying interfaces.
+
+### How does this relate to OpenClaw Fleet?
+
+Fleet owns local cell lifecycle and isolation. This RFC owns the capability
+bindings inside one admitted cell. A higher control plane such as Lobster may
+own multi-machine placement, identity-governed routing to cells, and
+fleet-level evidence aggregation.
+
+Fleet may create, replace, inspect, or remove a complete Gateway instance. It
+does not define provider semantics, credential slots, Channel ingress,
+readiness authority, or hosted dispatch. Conversely, a capability binding does
+not create cells, choose placement, or authorize tenants inside a shared
+Gateway.
+
+The two surfaces compose through cell-local admission and evidence:
+
+```text
+Fleet or external control plane creates or replaces a cell
+  -> cell loads and validates its host bundle
+  -> owners resolve and activate independent bindings
+  -> Hosting Profile determines cell readiness
+  -> Status and Doctor expose cell-local evidence
+  -> Fleet or another control plane may aggregate that evidence
+```
 
 ### Why not start with the reverse carrier?
 
@@ -832,5 +972,9 @@ It should not survive as one private semantic envelope.
 - Which provider families require streaming in V1 rather than bounded bytes?
 - Which deployment topology first requires the dedicated reverse dispatcher
   instead of direct networking or a standard proxy?
+- What is the smallest stable cell identity and incarnation evidence needed
+  beyond owner, bundle, binding, and carrier generation fencing, if any?
+- How should Fleet, Lobster, or another external control plane aggregate
+  cell-local readiness without becoming an owner or readiness writer?
 - After Graph adoption, which ProxyPipe family yields the next largest deletion
   for the smallest owner contract?
