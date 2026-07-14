@@ -16,7 +16,8 @@ rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 Add a small portable metadata vocabulary for the outcomes a skill may produce,
 the other skills it may use, and its isolation needs. Agent implementations can
 combine those author hints with runtime evidence, lineage, spend, and policy
-without introducing a workflow engine into the Agent Skills format.
+without introducing a workflow engine into the Agent Skills format. The same
+primitives form a natural stepping stone to richer workflows later.
 
 ## Motivation
 
@@ -496,15 +497,23 @@ schema process after the standalone invocation and budget contracts settle.
 ### Query and reporting
 
 The stable contract is a versioned record and filter model, not a particular
-prototype CLI flag. OpenClaw should expose:
+prototype CLI flag. Stable outcome types turn runtime evidence into ordinary
+audit dimensions. An implementation should make it possible to:
 
-- receipts filtered by business type, subject, run, session, tool, time, and
-  `regarding` identity;
-- run summaries joining invocation lifecycle, receipts, model identity, usage,
-  and captured cost;
-- orchestration summaries joining unique parent and descendant runs;
-- budget state showing limits, actual consumption, and exhaustion;
-- Claw and skill revision filters when provenance is available.
+- search and filter observed outcomes by exact type, subject, skill, skill
+  revision, run, session, tool, time, and `regarding` identity;
+- count and group outcomes by type, status, skill or Claw revision, model,
+  business record, and time window;
+- join outcomes to invocation lifecycle, parent and descendant runs, model
+  identity, normalized usage, captured cost, and budget state;
+- compare a skill's declared `outcomes` with observed evidence to find runs
+  where expected evidence is missing or an unexpected outcome was recorded.
+
+For example, an operator could find every `payment.refunded` outcome regarding
+a particular case, count refunds by skill revision, or audit completed runs
+that declared `customer.notified` but recorded no matching evidence. Version 1
+does not automatically treat a missing declared outcome as a failed run; it
+makes the discrepancy visible to policy and reporting layers.
 
 The first implementation may project existing trajectory and session data.
 It does not require a separate business ledger. Public CLI, Gateway, and UI
@@ -638,16 +647,27 @@ The first complete series is successful when:
 17. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
 
-## Later orchestration
+## A natural stepping stone to workflows
 
-After the first managed child-call and budget contracts are accepted, OpenClaw
-may add a small durable ordered-step object. A step may reference a declared
-skill and observed receipt, but it must reuse the same invocation, session,
-usage, cost, and budget primitives.
+This proposal deliberately stops short of defining workflows, but it establishes
+the reusable primitives a workflow layer would otherwise need to invent:
 
-Expressions, conditions, retries, model overrides, parallel fan-out, joins,
-loops, reservations, and computed gates remain later work. They are not
-prerequisites for useful receipts, measurable skills, or budgeted child calls.
+- `outcomes` provides names for expected completion results;
+- `uses-skills` provides potential composition edges between skills;
+- `isolation` provides honest execution and accounting boundaries;
+- invocation and parent/child lineage identify each execution;
+- observed receipts provide evidence for completion gates;
+- normalized usage and shared budgets provide spend controls.
+
+After the first managed child-call and budget contracts are accepted, an agent
+implementation or Claw policy may add a small durable ordered-step object. A
+step can reference a skill and an observed outcome while reusing the same
+invocation, session, evidence, usage, cost, and budget primitives.
+
+That makes ordered steps, conditions, retries, model choices, parallel fan-out,
+joins, loops, reservations, and computed gates natural incremental additions
+rather than a new execution system. Those workflow semantics remain later work
+and do not belong in this first metadata contract.
 
 ## Prior art and dependencies
 
