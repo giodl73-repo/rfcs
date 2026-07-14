@@ -578,10 +578,8 @@ consumer. Record explicit invocation lifecycle and exact skill identity. Do
 not land an inert metadata contract with no production path.
 
 Consolidated proof: [giodl73-repo/openclaw#90](https://github.com/giodl73-repo/openclaw/pull/90),
-including the production metadata consumer and exact full skill digest. The POC
-uses the earlier namespaced JSON envelope; the author-facing vocabulary above
-is the schema simplification learned from that proof and must replace it before
-an upstream-shaped implementation.
+including the production consumer for the friendly string hints and the exact
+full skill digest.
 
 ### 4. Invoke a declared child skill with lineage
 
