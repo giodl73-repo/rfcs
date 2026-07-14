@@ -519,6 +519,31 @@ The first implementation may project existing trajectory and session data.
 It does not require a separate business ledger. Public CLI, Gateway, and UI
 surfaces may evolve independently around the same record contracts.
 
+### Lightweight operational memory
+
+For simple support and operational scenarios, these records can provide the
+useful part of a small case tracker without requiring every team to build a
+custom CRM. The agent session is the durable conversation or work thread,
+`regarding` identifies the case, invoice, order, or other business record, and
+typed evidence records what happened.
+
+An implementation can therefore provide a two-step revisit path:
+
+1. find retained sessions by exact `regarding` identity; and
+2. reconstruct one selected thread's association changes, observed outcomes,
+   evidence, skill and model lineage, usage, and cost.
+
+A Claw may package the skills, outcome vocabulary, policy, and operator views.
+The Claw is the versioned solution definition, not the live customer database;
+OpenClaw or another agent implementation retains the operational records.
+
+This is intentionally smaller than a CRM. It does not define accounts,
+contacts, ownership queues, SLAs, forms, or an authoritative business-record
+store. Long-term revisitability also depends on explicit retention, backup,
+and export policy. Organizations that need those richer data-management
+features can continue to use an external CRM while preserving the same typed
+outcomes and execution evidence.
+
 ### Failure behavior
 
 - A failed tool call emits no success receipt.
@@ -616,6 +641,15 @@ USD spend continues to come from the run projection in slice 5.
 Consolidated proof: [giodl73-repo/openclaw#93](https://github.com/giodl73-repo/openclaw/pull/93),
 including durable ownership, atomic charging, overshoot accounting, and both
 admission boundaries.
+
+Two follow-on proofs demonstrate lightweight operational memory without
+expanding the metadata contract:
+
+- [giodl73-repo/openclaw#95](https://github.com/giodl73-repo/openclaw/pull/95)
+  finds durable sessions by exact business-record identity.
+- [giodl73-repo/openclaw#96](https://github.com/giodl73-repo/openclaw/pull/96)
+  reconstructs one selected thread's outcomes, evidence, execution lineage,
+  usage, and cost from retained OpenClaw facts.
 
 Direct tool-dispatch parity, `skill.used` read diagnostics, richer query
 presentation, and ordered steps can follow independently. They are not required
