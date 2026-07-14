@@ -17,15 +17,24 @@ Add a small portable metadata vocabulary for the outcomes a skill may produce,
 the other skills it may use, and its isolation needs. Agent implementations can
 combine those author hints with runtime evidence, lineage, spend, and policy
 without introducing a workflow engine into the Agent Skills format. The same
-primitives form a natural stepping stone to richer workflows later.
+primitives let an agent retain a searchable history of completed work and form
+a natural stepping stone to richer workflows later.
 
 ## Motivation
 
-A skill may declare the outcomes it can produce, the other skills it may use,
-and whether it requires an isolated run. A successful tool call may
-emit a typed receipt such as `inventory.sent`, `payment.authorized`, or
+An agent handling a customer email should not lose the business context when a
+reply is sent or a model run ends. The conversation may continue over several
+messages, involve several skills, and produce results such as a verified
+customer, an authorized refund, or a resolved case. An operator or a later
+agent should be able to find that thread again and understand what actually
+happened.
+
+Agent Skills already describes how reusable capabilities are packaged. This
+RFC adds a small vocabulary for what a skill may accomplish, which other skills
+it may use, and whether its work needs an isolated run. A successful tool call
+may then emit typed evidence such as `inventory.sent`, `payment.authorized`, or
 `invoice.paid`. OpenClaw records the exact skill invocation, child-run lineage,
-model usage, USD cost when available, budget consumption, and receipts actually
+model usage, USD cost when available, budget consumption, and evidence actually
 observed.
 
 The central invariant is:
@@ -97,6 +106,8 @@ facts. Neither substitutes for the other.
 - Aggregate orchestration spend without counting a run more than once.
 - Enforce a shared root budget across isolated descendant skill runs.
 - Associate sessions and receipts with one optional primary business record.
+- Make retained work threads discoverable and reconstructable by that business
+  context.
 - Reuse OpenClaw tools, sessions, trajectories, usage normalization, model cost,
   child sessions, policy, sanitization, and state accessors.
 - Reuse Claw package identity and provenance when a Claw owns the agent.
@@ -519,30 +530,42 @@ The first implementation may project existing trajectory and session data.
 It does not require a separate business ledger. Public CLI, Gateway, and UI
 surfaces may evolve independently around the same record contracts.
 
-### Lightweight operational memory
+### From a run to a durable work history
 
-For simple support and operational scenarios, these records can provide the
-useful part of a small case tracker without requiring every team to build a
-custom CRM. The agent session is the durable conversation or work thread,
-`regarding` identifies the case, invoice, order, or other business record, and
-typed evidence records what happened.
+Consider an OpenClaw agent supporting customers over email. The channel maps an
+email conversation to a stable session. When the conversation concerns an
+existing support case, an integration associates that session with
+`{ system: "dataverse", type: "case", id: "case-42", key: "CAS-42" }`.
 
-An implementation can therefore provide a two-step revisit path:
+The support skill may declare `customer.verified` and `case.resolved` as
+possible outcomes. Those declarations help the caller plan and govern the
+work, but they do not claim that either result occurred. If the agent verifies
+the customer and resolves the issue, the responsible tools record those
+outcomes with their evidence. The harness adds the exact skill revision,
+invocation and child-run lineage, model usage, cost, and budget facts.
 
-1. find retained sessions by exact `regarding` identity; and
-2. reconstruct one selected thread's association changes, observed outcomes,
-   evidence, skill and model lineage, usage, and cost.
+The session now serves as more than a transcript. It is a retained work thread
+that another agent or operator can revisit:
 
-A Claw may package the skills, outcome vocabulary, policy, and operator views.
-The Claw is the versioned solution definition, not the live customer database;
-OpenClaw or another agent implementation retains the operational records.
+1. find the session by its `regarding` identity;
+2. read the ordered association changes and observed outcomes;
+3. inspect evidence such as authorization or resolution codes; and
+4. trace the skills, model runs, spend, and policy boundaries that produced
+   them.
 
-This is intentionally smaller than a CRM. It does not define accounts,
-contacts, ownership queues, SLAs, forms, or an authoritative business-record
-store. Long-term revisitability also depends on explicit retention, backup,
-and export policy. Organizations that need those richer data-management
-features can continue to use an external CRM while preserving the same typed
-outcomes and execution evidence.
+A Claw can package the skills, outcome vocabulary, policies, budgets, and
+operator views for that support capability. OpenClaw retains the live
+operational history. For teams that need only this level of continuity, the
+combination may be sufficient without a separate case-tracking application.
+When an organization already has a CRM or another system of record,
+`regarding` links the same history to that system rather than competing with
+it.
+
+The proposal does not define accounts, contacts, assignment queues, SLAs,
+forms, or authoritative customer data. Long-term revisitability also depends
+on explicit retention, backup, and export policy. Those are product and
+deployment concerns built on the record contract, not additional `SKILL.md`
+metadata.
 
 ### Failure behavior
 
