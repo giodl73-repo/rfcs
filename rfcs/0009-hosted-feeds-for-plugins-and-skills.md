@@ -5,7 +5,7 @@ authors:
   - Patrick
   - Gio
 created: 2026-06-18
-last_updated: 2026-06-23
+last_updated: 2026-07-08
 status: draft
 issue:
 rfc_pr: https://github.com/openclaw/rfcs/pull/19
@@ -28,10 +28,13 @@ organization-specific catalogs.
 The first implementation should preserve the package model OpenClaw already
 uses. External plugins can continue to install from npm or ClawHub, with Git
 available for immutable source installs. The feed provides package selection,
-version, and checksum data; local configuration supplies the source endpoint,
-credentials, and trust policy. ClawHub can publish the default public feed.
-Organizations can publish effective feeds by subsetting, filtering, or
-augmenting ClawHub feeds with private entries and policy decisions.
+version, and checksum data; local configuration supplies the source endpoint
+and credentials. ClawHub can publish the default public feed and other
+ClawHub-hosted public, named, account, organization, or composed feeds. Those
+ClawHub-hosted feeds should be signed by the ClawHub platform feed-signing key,
+with the matching public key bundled in OpenClaw so ordinary ClawHub feed use is
+zero-config. Organizations can publish effective feeds by subsetting, filtering,
+or augmenting ClawHub feeds with private entries and policy decisions.
 
 ## Motivation
 
@@ -78,9 +81,11 @@ package source layer.
   the private registry RBAC model.
 - Let clients check feeds on a named, lifecycle-owned refresh schedule using
   HTTP `Last-Modified` and `ETag`.
-- Support signed remote feeds with directly configured publisher keys first,
-  while leaving room for a later signed key-rotation document if ClawHub needs
-  remote publisher-key rotation.
+- Support signed remote feeds. ClawHub-hosted feeds should verify against a
+  bundled ClawHub platform public key by default; third-party and self-hosted
+  feeds use directly configured publisher public keys first, with room for
+  later publisher key-management work if ClawHub or enterprise feed publishers
+  need remote key rotation.
 - Keep a bundled feed in every OpenClaw build so offline, Docker, and
   air-gapped environments continue to work.
 - Create an RFC and implementation plan that ClawHub, Microsoft, Tencent,
@@ -102,6 +107,8 @@ package source layer.
 - Solving private registry authentication or RBAC inside the feed format.
 - Allowing a feed to define registry domains, credentials, or bootstrap trust
   keys for the client that consumes it.
+- Reusing OpenClaw platform signing identities, Apple certificates, or release
+  signing material as feed signing keys.
 
 ## Proposal
 
@@ -128,6 +135,15 @@ points are:
 
 The first feed version should preserve those semantics while moving the catalog
 source from bundled-only JSON to hosted JSON with bundled fallback.
+
+The implementer-facing v1 core contract is captured in
+[`0009/hosted-feed-v1-spec.md`](0009/hosted-feed-v1-spec.md). Trust and account
+feed addenda are captured separately in
+[`0009/signed-feed-trust-v1-spec.md`](0009/signed-feed-trust-v1-spec.md) and
+[`0009/clawhub-account-feeds-v1-spec.md`](0009/clawhub-account-feeds-v1-spec.md).
+This RFC remains the design rationale and rollout plan; the sidecar specs are
+the concise schema, example, verification, refresh, and conformance references
+for feed publishers and OpenClaw clients.
 
 ### Feed document
 
@@ -203,6 +219,27 @@ after its own topology, while a feed entry refers only to a configured
 `sourceRef`. For example, `public-npm` is not a domain from the feed. It is a
 local profile that OpenClaw resolves to an npm registry URL, credentials, and
 installer behavior already trusted by that deployment.
+
+The default ClawHub feed profile is special only in its bootstrap trust. OpenClaw
+can ship a bundled ClawHub platform public key and use it to verify any
+ClawHub-hosted feed URL whose identity is inside the signed payload. That covers
+`clawhub-public`, ClawHub named feeds, account feeds, organization feeds, and
+ClawHub-served composed feeds without requiring users to paste keys for each
+feed. The feed document still carries its `feedId`, owner or organization scope,
+visibility, sequence, expiry, and entries; ClawHub still enforces ACLs before it
+serves private account or organization feeds. Non-ClawHub feed URLs do not
+inherit this trust and must either use an explicitly configured trust root or an
+explicit unsigned opt-in.
+
+OpenClaw must not bootstrap trust by downloading ClawHub's initial public key
+from the same feed host, such as a `/public-key` endpoint. If that host is
+compromised, the attacker could serve both a malicious feed and a matching key.
+The initial ClawHub public key should come from OpenClaw's shipped artifacts,
+source-controlled release metadata, or an operator-controlled local
+configuration channel. ClawHub can store the corresponding private signing key
+in its deployment secret store and may expose public-key metadata for human
+inspection, but that metadata is informational until verified by an already
+trusted root or a signed rotation document.
 
 ```jsonc
 {
@@ -302,9 +339,10 @@ a ClawHub-hosted package artifact or a semantic version.
 
 ### Feed discovery and fallback
 
-OpenClaw should have a default feed URL for the ClawHub public feed. At build or
-deploy time, OpenClaw should also bundle the latest generated feed file. At
-runtime the client should:
+OpenClaw should have a default feed URL for the ClawHub public feed and a
+bundled ClawHub platform public key for ClawHub-hosted feeds. At build or deploy
+time, OpenClaw should also bundle the latest generated feed file. At runtime the
+client should:
 
 1. Load the bundled feed as the fallback catalog.
 2. Start the lifecycle-owned refresh service after the gateway is ready.
@@ -345,9 +383,12 @@ threshold are the initial trust anchor; a remote feed cannot bootstrap or replac
 them. `verification.mode: "signed"` fails closed. An unsigned HTTPS feed requires
 the explicit local `verification.mode: "unsigned"` opt-in.
 
-Most feeds can use directly configured public keys. That should be the first
-implementation. If ClawHub later needs remote signing-key rotation, the same
-envelope format can wrap a small signed key-rotation document:
+The default ClawHub public key is bundled with OpenClaw so `clawhub-public` and
+other ClawHub-hosted feeds can be verified without user configuration. Directly
+configured public keys remain the override path for development, private
+ClawHub deployments, third-party publishers, and emergency root replacement.
+If ClawHub later needs remote signing-key rotation, the same envelope format can
+wrap a small signed key-rotation document:
 
 ```jsonc
 {
@@ -361,15 +402,222 @@ envelope format can wrap a small signed key-rotation document:
 }
 ```
 
-If key rotation is enabled, a locally configured root-key quorum verifies the
-signed key-rotation document. The verified `feedKeys` quorum then verifies feed
-envelopes. A key-rotation update must be signed by the currently trusted root
-quorum, and the client persists the accepted sequence and expiry to reject
-rollback and freeze attempts. Replacing root keys remains a local operator action
-for emergency recovery. The bundled fallback is trusted as part of the shipped
-OpenClaw artifact, not as an unsigned replacement for a configured signed remote
-feed. `verification.trustUrl` is optional; when absent, the configured local keys
-directly verify feed envelopes.
+If key rotation is enabled, the bundled ClawHub root or a locally configured
+root-key quorum verifies the signed key-rotation document. The verified
+`feedKeys` quorum then verifies feed envelopes. A key-rotation update must be
+signed by the currently trusted root quorum, and the client persists the accepted
+sequence and expiry to reject rollback and freeze attempts. Replacing root keys
+remains a local operator action for emergency recovery. The bundled fallback is
+trusted as part of the shipped OpenClaw artifact, not as an unsigned replacement
+for a configured signed remote feed. `verification.trustUrl` is optional; when
+absent, the bundled ClawHub root or configured local keys directly verify feed
+envelopes.
+
+A public-key discovery endpoint can help operators inspect or compare keys, but
+it is not a trust bootstrap mechanism. Clients should accept a new ClawHub feed
+signing key only when it is bundled in a trusted OpenClaw release, configured by
+the local operator, or delivered through a rotation document signed by an
+already trusted key.
+
+### Trust verification implementation series
+
+The first hosted-feed implementation has already landed the transport, fallback,
+profile, cache, manual refresh, entry inspection, and diagnostics layers. Those
+layers intentionally treat persisted hosted feed bodies as cache material. They
+do not make a hosted body an install, search, startup, or source authority until
+a later change explicitly verifies the feed against local trust rules.
+
+The next implementation series should move from transport and cache to
+authenticity. It should follow existing OpenClaw trust patterns:
+
+- Trust is anchored in local configuration, bundled OpenClaw artifacts, or
+  OpenClaw-owned install records. Remote feed content cannot grant itself new
+  source endpoints, credentials, root keys, or runtime authority.
+- Verification failures fail closed for signed feeds. Unsigned hosted feeds are
+  allowed only through an explicit local `verification.mode: "unsigned"` opt-in.
+- Persisted state records what was verified. It does not turn unverified cache
+  bytes into authority merely because they were previously fetched.
+- Artifact integrity and release trust remain package-source concerns. Feed
+  signatures prove who published the catalog payload; npm, ClawHub, Git, and
+  future skill installers still verify their own artifacts before install.
+- Operator diagnostics should expose bounded trust state and provenance, not
+  raw feed URLs, credentials, query strings, signing material, or unbounded
+  identity values. Bounded feed ids, configured source profile names, payload
+  checksum references, entry ids, package source types, policy states, and
+  outcome categories are acceptable when diagnostics are enabled.
+
+The implementation should land as five reviewable PRs:
+
+1. RFC addendum: define this trust boundary, the first signed-envelope series,
+   and the capabilities that remain deferred.
+2. Envelope and verifier primitives: parse signed envelopes, validate payload
+   type, verify Ed25519 signatures against directly configured keys, and cover
+   valid, tampered, wrong-key, malformed, and unsupported-payload fixtures.
+3. Source-profile trust config: extend marketplace feed profile configuration
+   from the current unsigned-only shape to direct signing keys and thresholds,
+   while keeping source profiles as local installer configuration.
+4. Marketplace refresh trust state: verify hosted responses before accepting or
+   replacing snapshots, persist verification metadata with the snapshot, reject
+   rollback-prone signed updates when sequence data is stale, and keep unsigned
+   or failed-verification bodies inert unless explicitly opted in.
+5. CLI and operator visibility: show signed, unsigned, unverified, stale, and
+   fallback trust states in refresh, entries, diagnostics, and tests using only
+   bounded fields.
+
+This series should not yet grant hosted feeds broad install authority, search
+ranking authority, regional selection, enterprise composition, or tenant/admin
+policy behavior. It only verifies and records whether the client can trust a
+hosted feed payload according to local configuration. Later PRs can consume that
+verified state when they wire trusted feed entries into install eligibility,
+search filtering, regional variants, or tenant-composed effective feeds.
+
+### ClawHub account feeds and following
+
+ClawHub can also publish account-backed feeds as a discovery feature. A ClawHub
+account feed is produced by ClawHub for a stable ClawHub account or publisher id,
+not by an arbitrary third-party endpoint. If OpenClaw verifies the feed as
+ClawHub-authored, the client can trust that the feed reflects ClawHub's view of
+that account's published plugins or skills and account metadata.
+
+This is different from treating every account feed entry as official or safe to
+install. The trust layers stay separate:
+
+- Feed source trust means OpenClaw verified that ClawHub produced the feed.
+- Publisher identity means the feed entry is attributed to a stable ClawHub
+  account or publisher id, not a mutable display name.
+- Official status means the publisher or package has passed ClawHub's official
+  account or package process.
+- Registry inclusion means a downstream registry, such as a Microsoft registry,
+  has accepted the publisher or package under its own rules.
+- Install eligibility still depends on package-source artifact verification,
+  ClawHub/OpenClaw release trust, and any downstream security scans or policy
+  checks required by the consuming deployment.
+
+Following an account should therefore be a discovery and notification signal. A
+user can follow a ClawHub account to see that account's new skills or plugins,
+filter search to followed accounts, or receive update notifications. Following
+must not by itself make a package official, bypass security scans, bypass
+tenant-admin approval, or allow a feed to introduce new source profiles or
+credentials.
+
+For Microsoft or another enterprise registry, the expected flow is: a publisher
+creates or claims a ClawHub account, ClawHub publishes account-backed feed state,
+the enterprise registry selects the relevant subset, runs its own scans and
+approval checks, and then publishes an approved effective feed for its clients.
+
+The account-feed work should move on two tracks:
+
+1. ClawHub product track: define the account or publisher feed model, ownership
+   and claim flow, follow graph, notifications, profile surfaces, and search
+   filters such as "people I follow" or "new from followed publishers". This
+   track owns the user experience for following publishers and discovering new
+   plugins or skills.
+2. OpenClaw trust and runtime track: verify ClawHub-authored feed envelopes,
+   record source-profile trust state, expose bounded CLI and diagnostics
+   visibility, and then consume verified account-feed state for discovery. This
+   track owns what the client can safely display, cache, refresh, and use for
+   search or notification surfaces.
+
+These tracks intentionally meet at discovery first. Install authority, official
+status, Microsoft registry inclusion, tenant approval, security-scan results,
+and package artifact verification remain separate gates that later PRs must
+wire explicitly.
+
+Implementation update: the ClawHub account-feed discovery work in this RFC is
+now backed by the current ClawHub PR stack. The code-backed slices are
+`#2948` through `#2959`: account-feed model/API (`#2948`), claim and
+official-state facts (`#2949`), follow graph API (`#2950`), profile and
+discovery surfaces (`#2951`), registry and scan bridge (`#2953`), follow
+controls and followed-publisher discovery (`#2957`), follow notification
+delivery (`#2958`), and public feed/profile routes (`#2959`). Those PRs keep
+the same boundary described above: following and discovery do not imply
+official status, registry inclusion, install eligibility, or security-scan
+bypass.
+
+The likely PR stacks are:
+
+ClawHub product stack:
+
+1. Account-feed model and API: define stable account or publisher ids, account
+   feed URLs, feed ownership metadata, and whether a feed represents a person,
+   organization, or curated publisher collection.
+2. Account claim and official-state flow: let publishers create or claim a
+   ClawHub account, record verification state, and keep official account or
+   package status separate from feed publication.
+3. Follow graph and notifications: add follow and unfollow state, notification
+   events for new or updated skills and plugins, and user preferences for those
+   notifications.
+4. Profile and discovery surfaces: expose publisher profile pages, followed
+   publisher lists, and search filters such as "people I follow" or "new from
+   followed publishers".
+5. Registry and scan bridge: expose the subset of ClawHub account and feed state
+   that downstream registries can consume, while preserving their own scans,
+   approval workflows, and registry-inclusion decisions.
+
+The next ClawHub implementation stack should build on those foundations without
+collapsing the trust gates:
+
+1. Follow controls and followed-publisher discovery: add follow and unfollow
+   controls on publisher surfaces, followed-publisher lists, and search filters
+   such as "people I follow" or "new from followed publishers", with clear
+   reasons for why entries appear.
+2. Follow notification delivery: emit notification events when followed
+   publishers publish or update skills and plugins, with user preferences,
+   mute or unsubscribe controls, replay/backfill rules, rate limits, and audit
+   records.
+3. Public feed and profile pages: expose account and publisher feed pages backed
+   by the account-feed API, including empty, restricted, official, review, and
+   scan states that reflect only recorded facts.
+4. Registry submission workflow: let eligible ClawHub publisher entries be
+   idempotently queued, retried, withdrawn, or resubmitted for downstream
+   registry review and scanning while keeping submission separate from approval.
+5. Reflected registry and scan state: persist and display downstream review,
+   scan, inclusion, and local approval states, including status history, only
+   when those systems report them back to ClawHub.
+
+OpenClaw trust and runtime stack:
+
+1. Feed envelope and verifier primitives: parse ClawHub-authored feed envelopes,
+   verify configured trust anchors, fail closed on invalid signatures, and keep
+   unsigned or failed-verification bodies inert.
+2. Source-profile trust config: define which ClawHub feed profiles and account
+   feed endpoints are locally trusted, including directly configured publisher
+   public keys and explicit unsigned opt-in behavior for self-hosted feeds.
+3. Refresh and snapshot trust state: persist verification result, sequence,
+   freshness, and fallback state with the cached feed snapshot without granting
+   install or search authority by persistence alone.
+4. CLI and operator visibility: show feed trust, source profile, account-feed,
+   stale, fallback, and verification-failure states in refresh, entries, and
+   diagnostics using bounded fields.
+5. Discovery consumption: add followed-account and publisher-specific discovery
+   filters only after verified account-feed state exists, while keeping install
+   eligibility and package-source artifact verification on their existing gates.
+
+After both tracks land, a joint ecosystem phase can build on the verified
+account-feed foundation:
+
+1. Install and policy integration: let verified feed, account, and publisher
+   state participate in install eligibility, tenant policy, allow lists, block
+   lists, and admin-approved effective feeds.
+2. Security and scanning maturity: carry ClawHub/OpenClaw scan results,
+   vulnerability signals, malware checks, provenance attestations, and review
+   status without treating account follows as scan bypasses.
+3. Ranking and recommendations: use followed accounts, official status, scan
+   state, popularity, recency, and enterprise approval to shape search ranking
+   and recommendations.
+4. Enterprise composition: let Microsoft/MOS3 or another registry compose
+   ClawHub feeds, followed publishers, internal feeds, blocked packages, and
+   approved packages into tenant-specific feeds.
+5. Regional and mirror strategy: support regional ClawHub mirrors, partner
+   mirrors, enterprise mirrors, key rotation, and failover rules.
+6. Publishing workflow: define the path from local skill or plugin authoring to
+   ClawHub account-feed publication, scanning, signing, follower notification,
+   and discovery.
+7. Admin and audit surfaces: add audit logs, install provenance, visibility
+   explanations, drift reports, stale-feed reports, and tenant admin controls.
+8. Compatibility and ecosystem hardening: lock schema versions, fallback
+   behavior, conformance tests, SDK helpers, migration rules, and compatibility
+   promises for third-party feed producers.
 
 ```mermaid
 flowchart LR
@@ -552,11 +800,28 @@ source profiles decide where those candidates resolve and how the client
 authenticates.
 
 The signed envelope is intentionally smaller than a full updater framework.
-Directly configured publisher keys cover the normal case and should be enough for
-the first release. If ClawHub later needs remote publisher-key rotation, a
-separate signed key-rotation document can describe the currently valid feed
-signing keys and expiry. That follow-up should be treated as a distinct design
-step, not as a requirement for the first hosted feed.
+Directly configured publisher public keys cover the normal verification case and
+should be enough for the first release. These public keys are not secrets; they
+belong in local source-profile trust configuration with stable key ids or
+fingerprints and bounded diagnostics.
+
+Feed signing private keys are different. They should follow the same management
+principle OpenClaw already uses for platform signing and App Store Connect keys:
+private material stays outside normal OpenClaw config, for example in Keychain,
+a secret provider, CI secret storage, or an explicit operator-provided path,
+while config and status surfaces expose only non-secret key identity,
+fingerprint, and provenance. Feed signing keys should not reuse Apple platform
+signing certificates, Developer ID identities, notarization credentials, or
+other release-signing material. Platform keys prove binary/app publisher
+identity to operating-system verifiers; feed keys prove feed document integrity
+to OpenClaw clients and should have separate rotation and blast-radius
+boundaries.
+
+If ClawHub later needs remote publisher-key rotation, revocation, or publisher
+signing-key bootstrap UX, a separate signed key-management document can describe
+the currently valid feed signing public keys, expiry, and retirement rules.
+That follow-up should be treated as a distinct design step, not as a requirement
+for the first hosted feed.
 
 The bundled fallback is not optional. Without it, a feed outage or blocked
 endpoint would break onboarding and plugin discovery. With it, hosted feeds add
@@ -621,11 +886,22 @@ activated.
 3. Add named feed and source profiles, including npm registry overrides,
    ClawHub-compatible base URLs, Git base paths, and secret-reference
    authentication.
-4. Add signed feed envelopes with directly configured keys for public hosted
-   feeds. Self-hosted unsigned HTTPS feeds remain an explicit local opt-in.
+4. Add signed feed envelopes. Bundle the ClawHub platform public key for
+   ClawHub-hosted feeds and keep directly configured keys for third-party or
+   self-hosted feeds. Self-hosted unsigned HTTPS feeds remain an explicit local
+   opt-in. Land this through the five-PR trust verification series: RFC
+   addendum, envelope verifier primitives, trust config, refresh/cache
+   verification state, and CLI/operator visibility. Publisher private-key
+   management remains a publishing workflow slice and should follow the
+   platform-signing model: external private material, non-secret key
+   id/fingerprint references in config, status/doctor visibility, and no reuse
+   of platform release-signing identities.
 5. Publish the first ClawHub-hosted feed for the current external plugin catalog.
-   The first feed may include all current external entries; ClawHub can narrow
-   future default feeds to official packages as the official catalog grows.
+   The same ClawHub platform signing path should sign `clawhub-public`, named
+   feeds, account feeds, organization feeds, and ClawHub-served composed feeds.
+   The first public feed may include all current external entries; ClawHub can
+   narrow future default feeds to official packages as the official catalog
+   grows.
 6. Update OpenClaw to load the bundled fallback, refresh hosted feeds after
    gateway startup, and store verified snapshots in SQLite.
 7. Add conditional HTTP update detection with `ETag` and `Last-Modified`.
@@ -633,13 +909,18 @@ activated.
 9. Extend the same discovery contract to skills after the skill installer
    accepts catalog candidates, including GitHub-indexed skills that do not have
    ClawHub-hosted artifacts.
-10. Add composition guidance and examples for Microsoft/MOS3 and other
+10. Add ClawHub account-backed feeds and following as a discovery layer for
+    publisher-specific skill and plugin updates. These feeds should be
+    ClawHub-authored and verified, but following an account should not imply
+    official status, registry inclusion, install eligibility, or security-scan
+    bypass.
+11. Add composition guidance and examples for Microsoft/MOS3 and other
     tenant-admin systems.
-11. Add feed provenance to feed-backed install records and emit diagnostics for
+12. Add feed provenance to feed-backed install records and emit diagnostics for
     fetch, snapshot load, entry action, policy decision, update, and activation.
-12. Align Tencent, Xiaomi, and other regional mirrors before the spec is treated
+13. Align Tencent, Xiaomi, and other regional mirrors before the spec is treated
     as stable.
-13. Land implementation through small draft PRs that maintainers can review,
+14. Land implementation through small draft PRs that maintainers can review,
     adjust, and merge as the RFC stabilizes.
 
 ## Unresolved questions
@@ -652,6 +933,9 @@ activated.
   "feed" for the protocol and propagation artifact?
 - Which runtime policy metadata should feed entries be allowed to reference
   without turning the feed into a policy engine?
+- Which ClawHub account-feed states should OpenClaw expose for following,
+  notifications, and search filters without turning followed accounts into
+  install authority?
 - How many stable OpenClaw releases should ship hosted feed fallback before
   Scout, Microsoft, and other clients depend on the contract?
 - Should a later LTS release define stronger compatibility guarantees for feed
