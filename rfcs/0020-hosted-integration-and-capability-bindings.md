@@ -3,7 +3,7 @@ title: Hosted Owner Bindings and Managed Dispatch
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-14
+last_updated: 2026-07-15
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
@@ -46,9 +46,12 @@ A request may compose all three branches. The decision tree selects the
 physical execution path; owner preparation, traffic policy, and network safety
 still apply when hosted dispatch is selected.
 
-A namespaced host bundle may package implementations for these independently
-owned contracts. Hosting Profiles, Status, and Doctor aggregate their evidence.
-Neither the bundle nor a carrier becomes a new semantic owner.
+A namespaced external host plugin may package implementations for these
+independently owned contracts. A control plane may author that plugin's normal
+OpenClaw configuration across a fleet, but each Gateway cell loads, validates,
+and activates its own bundle generation. Hosting Profiles, Status, and Doctor
+aggregate cell-local evidence. Neither the bundle nor a carrier becomes a new
+semantic owner.
 
 In multi-tenant deployments, every bundle, binding, credential resolution, and
 dispatcher admission is scoped to one complete Gateway cell. This proposal
@@ -117,7 +120,8 @@ and network isolation.
 
 The normative rules are:
 
-1. a host integration bundle is registered inside one Gateway cell;
+1. an installed external host plugin registers one host integration bundle
+   inside one Gateway cell through the normal plugin lifecycle;
 2. owner configuration, credentials, readiness, Status, and Doctor evidence
    are cell-local;
 3. a hosted dispatcher or reverse session is admitted for exactly one cell and
@@ -282,8 +286,11 @@ It may not:
 
 ## Branch 2: Owner Contracts
 
-When Lobster currently owns request semantics, those semantics move into the
-relevant OpenClaw owner.
+When a host currently owns request semantics, those semantics move to the
+relevant semantic owner. Existing OpenClaw providers, Channels, and tools keep
+that logic in their native owner. Host- or product-specific providers implement
+the same owner contract in their external plugin; they do not become OpenClaw
+core code merely because they are the first hosted-dispatch adopter.
 
 There is no universal provider-adapter registry. Model providers, Channels,
 web tools, and other owners expose their own request contracts through their
@@ -312,7 +319,7 @@ owner result.
 
 The owner validates all semantic inputs before dispatch. Examples include:
 
-- CAPI request defaults and endpoint selection;
+- an external CAPI plugin's request defaults and endpoint selection;
 - Substrate body and token audience;
 - WebIQ query bounds and response filtering;
 - Anthropic request and SSE response semantics;
@@ -520,23 +527,18 @@ shared framing and connection management remove more complexity than they add.
 
 ### Host integration bundle
 
-A host package may register one immutable, namespaced inventory of
-implementations inside a cell:
+An external host plugin may register one immutable, namespaced inventory of
+implementations inside a cell. The plugin is installed and configured through
+OpenClaw's existing plugin surfaces:
 
 ```jsonc
 {
-  "id": "lobster-host",
+  "id": "example/managed-host",
   "version": "1.0.0",
   "contracts": {
-    "channelEndpoints": ["lobster/teams"],
-    "trafficPolicies": ["lobster/enterprise-egress"],
-    "credentialSlotResolvers": [
-      "lobster/capi-token",
-      "lobster/substrate-token",
-      "lobster/acf-token",
-      "lobster/graph-token"
-    ],
-    "providerRequestDispatchers": ["lobster/egress"]
+    "trafficPolicies": ["example/managed-egress"],
+    "credentialSlotResolvers": ["example/provider-token"],
+    "providerRequestDispatchers": ["example/managed-dispatch"]
   }
 }
 ```
@@ -554,10 +556,29 @@ The normative rules are:
 7. configured governed bindings never silently fall back; and
 8. the bundle supplies packaging and provenance, not semantics.
 
+OpenClaw does not ship a `lobster-host`, `example-host`, or other first-party
+host bundle extension. Core ships only the registration, validation,
+diagnostic, readiness, credential-slot, and dispatch contracts. Lobster or any
+other hosting product owns its plugin package, plugin configuration schema,
+credential resolvers, dispatcher implementation, deployment metadata, and
+bundle manifest.
+
+A fleet control plane such as Scout may author:
+
+```text
+plugins.entries.<external-host-plugin>.enabled
+plugins.entries.<external-host-plugin>.config
+```
+
+as a global or tenant-scoped managed configuration policy. That policy is
+globally authored but cell-locally resolved. It never creates a fleet-global
+runtime bundle, credential registry, or activation transaction.
+
 Future SecretRef, publication, or telemetry implementations may register in
 the same package without sharing the provider-request interface.
 
-Installing the same host package in many cells creates independent bundle
+Installing and selecting the same external host plugin in many cells creates
+independent bundle
 snapshots and generations. It does not create a fleet-global activation or
 semantic registry.
 
@@ -726,14 +747,17 @@ Each migration is a pair:
    - add local/hosted fixtures and structured failures; and
    - name the downstream deletion target.
 2. **Adopter slice** in Lobster:
-   - register the implementation or credential resolver;
+   - implement and configure the external host plugin;
+   - register the bundle, dispatcher, and credential resolvers;
    - bind trusted host identity and policy;
    - activate a managed canary;
    - prove rollback and redacted evidence; and
    - delete or expiry-gate the old path.
 
 The owner slice does not activate host authority by itself. The adopter does
-not reimplement owner semantics.
+not reimplement native OpenClaw owner semantics. Product-specific providers
+that do not exist in OpenClaw, including CAPI, remain external plugin-owned
+adopters rather than being added to OpenClaw core as proof fixtures.
 
 ### Single-writer states
 
@@ -794,7 +818,7 @@ reverse carrier and some adopter activations remain future proof points.
 | Fleet and Gateway security | Existing one-cell-per-tenant trust boundary and host-side lifecycle supervision | Capability bindings remain per-cell and do not become a shared multi-tenant Gateway or data plane |
 | Gateway and approval work | Existing canonical Gateway methods/events and native approval consumer behavior | No approval protocol or reverse callback API is needed |
 | Channel endpoint work | Existing owner routes and Gateway authentication | No generic Channel ingress protocol is needed |
-| CAPI and Substrate | Owner/adopter request preparation, exact token slots, policy intersection, and local/hosted dispatcher fixtures | Provider semantics stay out of the dispatcher |
+| External CAPI proof and Substrate | External-plugin request preparation, exact token slots, policy intersection, and local/hosted dispatcher fixtures | Product-specific provider semantics stay out of OpenClaw core and out of the dispatcher |
 | WebIQ | Completed owner/adopter query, default, filtering, and API-key-slot slices | Web tools use their own owner surface, not a universal adapter registry |
 | Anthropic | Completed owner/adopter request and streamed-response slices with exact key/origin binding | Streaming semantics do not belong in the carrier |
 | ACF | Completed owner and credential-resolver slices for Channel-owned Activity bytes | Tenant/user/Channel identity stays off the dispatch wire |
@@ -908,9 +932,10 @@ registry or one semantic payload. "Owner contract" preserves that distinction.
 
 ### Why retain a host bundle?
 
-One package, version, provenance chain, and installation path make a host's
-offerings operable. Typed owner references and owner-local activation prevent
-that packaging boundary from becoming a central protocol.
+One externally owned plugin package, version, provenance chain, configuration
+schema, and installation path make a host's offerings operable. Typed owner
+references and owner-local activation prevent that packaging boundary from
+becoming a central protocol or a first-party OpenClaw product extension.
 
 ### Why retain Hosting Profiles?
 
@@ -935,7 +960,8 @@ The two surfaces compose through cell-local admission and evidence:
 
 ```text
 Fleet or external control plane creates or replaces a cell
-  -> cell loads and validates its host bundle
+  -> managed config selects an installed external host plugin
+  -> the cell loads and validates that plugin's bundle
   -> owners resolve and activate independent bindings
   -> Hosting Profile determines cell readiness
   -> Status and Doctor expose cell-local evidence
@@ -953,7 +979,7 @@ reverse session.
 
 In:
 
-- one installed host bundle;
+- one installed and configured external host plugin;
 - typed references from owner configuration;
 - generated validation and conformance fixtures;
 - one named Hosting Profile;
