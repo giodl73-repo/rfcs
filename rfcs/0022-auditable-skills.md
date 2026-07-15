@@ -69,7 +69,7 @@ An operator should be able to answer:
 - How many tokens and US dollars did it consume?
 - Was the cost provider-billed or catalog-estimated?
 - Which business outcome did its tools prove?
-- Which session, business record, and Claw did it belong to?
+- Which session, outcome subject, and Claw did it belong to?
 - Did it remain within its orchestration budget?
 
 For example, an isolated refund skill may produce this run summary:
@@ -116,9 +116,8 @@ facts. Neither substitutes for the other.
 - Aggregate orchestration spend without counting a run more than once.
 - Roll observed managed-run usage into workflow totals and existing workflow
   limits.
-- Associate sessions and receipts with one optional primary business record.
-- Make retained work threads discoverable and reconstructable by that business
-  context.
+- Make retained work threads discoverable through existing session identity and
+  typed outcome subjects.
 - Reuse OpenClaw tools, sessions, trajectories, usage normalization, model cost,
   child sessions, policy, sanitization, and state accessors.
 - Reuse Claw package identity and provenance when a Claw owns the agent.
@@ -308,7 +307,6 @@ The harness records the receipt in an existing trajectory envelope and adds:
 - session and run identity;
 - tool name and tool-call ID;
 - skill invocation identity when present;
-- active `regarding` snapshot when present;
 - provider and model correlation from the run.
 
 The receipt does not own token usage. Audit projections join it to run-level
@@ -317,47 +315,6 @@ usage and spend through the invocation and run identity.
 Malformed receipt data is not recorded as evidence. Receipt recording failure
 does not rewrite the underlying tool outcome, but it remains observable as an
 audit diagnostic.
-
-### Session business context
-
-The OpenClaw session remains the conversation or activity stream. One optional
-primary association identifies the business record that the session is about:
-
-```ts
-type SessionRegarding = {
-  system: string;
-  type: string;
-  id: string;
-  key?: string;
-};
-```
-
-The identity is `system`, `type`, and `id`. Optional `key` is a human-facing
-reference such as a case or invoice number. Core treats the fields as opaque.
-
-For example, a mail plugin may correlate an email thread to an OpenClaw session,
-match or create a Dataverse case, and set:
-
-```json
-{
-  "system": "dataverse",
-  "type": "incident",
-  "id": "500xx0000012345",
-  "key": "CASE-18427"
-}
-```
-
-Channel thread identity and business record identity remain separate. Subject
-text is not an identity. Plugins and tools own matching and external creation;
-OpenClaw owns session persistence, audited set/replace/clear transitions, and
-receipt snapshots.
-
-This follows the Dataverse Set Regarding pattern without importing a CRM object
-model into core. `SkillReceipt.subject` remains the object a particular event
-concerns and is not an alias for the session's primary `regarding` value.
-
-Regarding is useful for support, finance, sales, and operations, but it is not a
-prerequisite for standalone receipts or skill invocation.
 
 ### Invocation and exact skill identity
 
@@ -507,16 +464,16 @@ prototype CLI flag. Stable outcome types turn runtime evidence into ordinary
 audit dimensions. An implementation should make it possible to:
 
 - search and filter observed outcomes by exact type, subject, skill, skill
-  revision, run, session, tool, time, and `regarding` identity;
-- count and group outcomes by type, status, skill or Claw revision, model,
-  business record, and time window;
+  revision, run, session, tool, and time;
+- count and group outcomes by type, status, subject, skill or Claw revision,
+  model, and time window;
 - join outcomes to invocation lifecycle, parent and descendant runs, model
   identity, normalized usage, captured cost, and workflow limit state;
 - compare a skill's declared `outcomes` with observed evidence to find runs
   where expected evidence is missing or an unexpected outcome was recorded.
 
-For example, an operator could find every `payment.refunded` outcome regarding
-a particular case, count refunds by skill revision, or audit completed runs
+For example, an operator could find every `payment.refunded` outcome for a
+particular subject, count refunds by skill revision, or audit completed runs
 that declared `customer.notified` but recorded no matching evidence. Version 1
 does not automatically treat a missing declared outcome as a failed run; it
 makes the discrepancy visible to policy and reporting layers.
@@ -528,9 +485,8 @@ surfaces may evolve independently around the same record contracts.
 ### From a run to a durable work history
 
 Consider an OpenClaw agent supporting customers over email. The channel maps an
-email conversation to a stable session. When the conversation concerns an
-existing support case, an integration associates that session with
-`{ system: "dataverse", type: "case", id: "case-42", key: "CAS-42" }`.
+email conversation to a stable session, so each thread already has durable
+identity and ordered history.
 
 The support skill may declare `customer.verified` and `case.resolved` as
 possible outcomes. Those declarations help the caller plan and govern the
@@ -543,8 +499,9 @@ facts.
 The session now serves as more than a transcript. It is a retained work thread
 that another agent or operator can revisit:
 
-1. find the session by its `regarding` identity;
-2. read the ordered association changes and observed outcomes;
+1. find the session by its existing channel and thread identity, or find an
+   outcome by its exact type and subject;
+2. read the ordered observed outcomes;
 3. inspect evidence such as authorization or resolution codes; and
 4. trace the skills, model runs, spend, and policy boundaries that produced
    them.
@@ -553,9 +510,8 @@ A Claw can package the skills, outcome vocabulary, policies, budgets, and
 operator views for that support capability. OpenClaw retains the live
 operational history. For teams that need only this level of continuity, the
 combination may be sufficient without a separate case-tracking application.
-When an organization already has a CRM or another system of record,
-`regarding` links the same history to that system rather than competing with
-it.
+Integrations can put external record IDs in producer-owned receipt subjects
+without adding a second session-association model to OpenClaw core.
 
 The proposal does not define accounts, contacts, assignment queues, SLAs,
 forms, or authoritative customer data. Long-term revisitability also depends
@@ -568,8 +524,6 @@ metadata.
 - A failed tool call emits no success receipt.
 - A malformed receipt is not recorded as business evidence.
 - Receipt recording failure does not rewrite the tool's success or failure.
-- An invalid `regarding` value does not change the session association.
-- Replacing or clearing `regarding` records an audited transition.
 - Unknown skill execution hints do not break ordinary skill loading.
 - A managed child request outside the effective declared and allowed graph is
   rejected before dispatch.
@@ -614,10 +568,10 @@ series contains this RFC and five implementation slices.
 
 ### 1. Record business work
 
-Carry typed receipts through successful tool results, associate a session with
-one business record, and make both searchable. This proves that an operator can
-find a case, count outcomes by type, and inspect evidence such as a payment
-authorization code.
+Carry typed receipts through successful tool results and make them searchable
+through existing session/run correlation plus exact outcome type. This proves
+that an operator can revisit the originating work thread, count outcomes by
+type, and inspect evidence such as a payment authorization code.
 
 Consolidated proof: [giodl73-repo/openclaw#97](https://github.com/giodl73-repo/openclaw/pull/97).
 
@@ -663,23 +617,20 @@ The first complete series is successful when:
 1. A successful tool can emit `payment.authorized` with an authorization code.
 2. Failed tools and malformed receipts produce no success evidence.
 3. Receipts are recorded, sanitized, retained, and filterable by type.
-4. A session can be associated with a case or other opaque business record.
-5. Regarding set, replace, and clear transitions are audited.
-6. Later receipts snapshot and filter by the active regarding identity.
-7. A skill can declare outcomes, other skills it may use, and isolation intent
+4. A skill can declare outcomes, other skills it may use, and isolation intent
    in standard-compatible string metadata.
-8. Ordinary skills without the metadata remain backward compatible.
-9. One explicit invocation records exact skill identity and lifecycle.
-10. One declared isolated child skill runs through existing OpenClaw session
+5. Ordinary skills without the metadata remain backward compatible.
+6. One explicit invocation records exact skill identity and lifecycle.
+7. One declared isolated child skill runs through existing OpenClaw session
     and policy primitives with complete parent/child lineage.
-11. Each isolated run reports normalized tokens and captured cost with its basis
+8. Each isolated run reports normalized tokens and captured cost with its basis
     when available.
-12. Shared turns are labelled shared rather than divided among skills.
-13. A workflow total counts each contributing managed run once.
-14. Workflow accounting survives approval and structured-input pauses.
-15. A caller-provided workflow `cost_limit` uses Lobster's existing enforcement.
-16. Skill metadata cannot set or widen that limit.
-17. When a Claw is present, reports include authoritative Claw and skill package
+9. Shared turns are labelled shared rather than divided among skills.
+10. A workflow total counts each contributing managed run once.
+11. Workflow accounting survives approval and structured-input pauses.
+12. A caller-provided workflow `cost_limit` uses Lobster's existing enforcement.
+13. Skill metadata cannot set or widen that limit.
+14. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
 
 ## A natural stepping stone to workflows
@@ -709,10 +660,6 @@ those existing layers. They remain runtime capabilities, not portable
 
 - [Agent Skills specification](https://agentskills.io/specification)
 - [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27)
-- [Dynamics 365 Set Regarding](https://learn.microsoft.com/en-us/dynamics365/outlook-app/user/track-message-or-appointment)
-- [Dataverse Email and RegardingObjectId](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/reference/entities/email)
-- [Automatic email-to-case creation](https://learn.microsoft.com/en-us/dynamics365/customer-service/administer/automatically-create-case-from-email)
-- [Email reply correlation and automatic case creation](https://learn.microsoft.com/en-us/troubleshoot/dynamics-365/customer-service/email/incoming-email-not-converted-case)
 
 ## Unresolved questions
 
@@ -724,6 +671,5 @@ those existing layers. They remain runtime capabilities, not portable
   model or credential choices portable package data?
 - When is catalog-estimated cost sufficiently stable for hard USD enforcement,
   and how should mixed billed and estimated runs behave?
-- Which session lifecycle transitions preserve or clear `regarding`?
 - When should a declared-versus-observed receipt mismatch become a strict
   managed-run failure rather than an audit warning?
