@@ -1,15 +1,15 @@
 ---
-title: Agent Skills Metadata for Outcomes and Execution
+title: Agent Skills Metadata for Outcomes and Composition
 authors:
   - Gio Lodi
 created: 2026-07-13
-last_updated: 2026-07-14
+last_updated: 2026-07-15
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 ---
 
-# Agent Skills Metadata for Outcomes and Execution
+# Agent Skills Metadata for Outcomes and Composition
 
 ## Summary
 
@@ -34,8 +34,9 @@ RFC adds a small vocabulary for what a skill may accomplish, which other skills
 it may use, and whether its work needs an isolated run. A successful tool call
 may then emit typed evidence such as `inventory.sent`, `payment.authorized`, or
 `invoice.paid`. OpenClaw records the exact skill invocation, child-run lineage,
-model usage, USD cost when available, budget consumption, and evidence actually
-observed.
+model usage, USD cost when available, and evidence actually observed. When
+skills are composed into a workflow, Lobster aggregates that observed usage
+and applies limits through its existing workflow accounting primitives.
 
 The central invariant is:
 
@@ -106,7 +107,8 @@ facts. Neither substitutes for the other.
 - Record exact skill identity, invocation lifecycle, and parent/child lineage.
 - Attribute tokens and USD cost honestly at the model-run boundary.
 - Aggregate orchestration spend without counting a run more than once.
-- Enforce a shared root budget across isolated descendant skill runs.
+- Roll observed managed-run usage into workflow totals and existing workflow
+  limits.
 - Associate sessions and receipts with one optional primary business record.
 - Make retained work threads discoverable and reconstructable by that business
   context.
@@ -170,7 +172,7 @@ OpenClaw records what actually happened:
 - status, duration, errors, and child runs;
 - receipts actually emitted by successful tools;
 - active session business context;
-- budget charges and exhaustion.
+- workflow usage and limit state when the run belongs to a workflow.
 
 The declaration and the evidence remain separate so audit consumers can compare
 expected and observed behavior.
@@ -444,46 +446,30 @@ omitted when neither provider billing nor a usable catalog estimate exists.
 An orchestration report should include per-run, per-model, and total spend so a
 Claw can show which skill revisions produced which outcomes at what cost.
 
-### Shared orchestration budgets
+### Workflow accounting and limits
 
-A budget belongs to one isolated root skill run and covers its managed
-descendants. The canonical root child session owns the durable counter.
+OpenClaw does not introduce a second workflow budget ledger. A completed
+managed skill run projects its observed input and output tokens, plus an
+unambiguous model identity when available, into Lobster's native command-result
+shape. Lobster's existing `CostTracker` owns workflow aggregation and its
+existing `cost_limit` owns workflow enforcement.
 
-```ts
-type OrchestrationBudget = {
-  schemaVersion: 1;
-  rootRunId: string;
-  tokenLimit: number;
-  tokensUsed: number;
-  createdAt: number;
-  updatedAt: number;
-  exhaustedAt?: number;
-};
-```
+Accounting follows the workflow lifecycle:
 
-Version 1 enforces a token limit. USD spend remains available in the run and
-orchestration projections described above, including its billing or estimate
-basis. A hard USD limit may be added once mixed billed/estimated enforcement
-semantics are accepted; reporting cost does not wait for that decision.
+1. Each completed managed skill step reports its observed run usage once.
+2. Lobster aggregates those step results into one workflow summary.
+3. The summary survives approval and structured-input pauses and resumes.
+4. Cancellation reports cost already incurred when resume state is available.
+5. The caller may set a workflow limit; skill metadata cannot set or widen it.
 
-The budget contract is:
+This boundary keeps business receipts independent from accounting. A receipt
+can be searched and audited by type, while tokens and cost remain attached to
+the run and workflow that consumed them. Provider-billed and estimated cost
+bases remain visible rather than being collapsed into false precision.
 
-1. The caller or Claw establishes one limit on the root isolated invocation.
-2. Descendants inherit an opaque owner-session and root-run reference.
-3. Descendants cannot redefine or increase the limit.
-4. Each completed model attempt charges its full observed usage atomically.
-5. A call that crosses the remaining limit is recorded in full.
-6. Exhaustion stops the next model or managed child-skill action.
-
-A budget cannot predict the exact size of one provider call, so it cannot
-prevent a final overshoot. It prevents additional spend after the overshooting
-call is observed. Initial enforcement is sequential; reservations for parallel
-fan-out are outside version 1.
-
-The durable counter is the enforcement source of truth. Retention-bounded
-trajectory summaries remain audit and reporting views, not the hard budget
-ledger. Accounting failure in a managed budgeted run must stop before another
-paid action rather than silently drifting from observed spend.
+OpenClaw may continue to enforce ordinary agent or descendant-run limits at its
+own execution boundary. This RFC does not define a new portable budget schema
+or require those policies to share storage with Lobster.
 
 ### Claw integration
 
@@ -505,7 +491,7 @@ credentials, channel access, models, or child skills.
 
 The initial RFC 0022 implementation does not require a new portable RFC 0016
 manifest field. A later Claw runtime-policy field may be added through the Claws
-schema process after the standalone invocation and budget contracts settle.
+schema process after standalone invocation and workflow accounting settle.
 
 ### Query and reporting
 
@@ -518,7 +504,7 @@ audit dimensions. An implementation should make it possible to:
 - count and group outcomes by type, status, skill or Claw revision, model,
   business record, and time window;
 - join outcomes to invocation lifecycle, parent and descendant runs, model
-  identity, normalized usage, captured cost, and budget state;
+  identity, normalized usage, captured cost, and workflow limit state;
 - compare a skill's declared `outcomes` with observed evidence to find runs
   where expected evidence is missing or an unexpected outcome was recorded.
 
@@ -544,7 +530,8 @@ possible outcomes. Those declarations help the caller plan and govern the
 work, but they do not claim that either result occurred. If the agent verifies
 the customer and resolves the issue, the responsible tools record those
 outcomes with their evidence. The harness adds the exact skill revision,
-invocation and child-run lineage, model usage, cost, and budget facts.
+invocation and child-run lineage, model usage, cost, and workflow accounting
+facts.
 
 The session now serves as more than a transcript. It is a retained work thread
 that another agent or operator can revisit:
@@ -582,8 +569,9 @@ metadata.
 - `isolation: required` fails before dispatch when isolation is unavailable.
 - Usage is omitted when the provider reports none; it is never invented.
 - Cost is omitted when neither billed nor estimated cost is available.
-- A stale budget root reference cannot charge another root's counter.
-- An exhausted budget prevents the next paid or managed child action.
+- Workflow accounting survives pause and resume without double counting.
+- A configured workflow cost limit remains caller policy and cannot be widened
+  by skill metadata.
 - Sanitization and redaction apply before durable recording and export.
 
 ## Rationale
@@ -598,7 +586,8 @@ tokens directly to a receipt or to every skill read during a shared turn would
 produce precise-looking but false numbers. Isolated child sessions already give
 OpenClaw an exclusive execution boundary, so the proposal reuses them.
 
-The metadata is a namespaced Agent Skills extension rather than a new manifest.
+The metadata uses the Agent Skills string-valued metadata map rather than a new
+manifest.
 Standalone skills remain portable, implementations may ignore the extension,
 and Claws continue to own packaging and lifecycle. A later standards proposal
 can promote the fields after real interoperability proof.
@@ -613,7 +602,8 @@ accounting contract in this RFC rather than introducing a second harness.
 
 The prototype series deliberately proved assumptions one at a time. An
 upstream-shaped implementation should consolidate them into coherent vertical
-slices rather than preserve every intermediate state.
+slices rather than preserve every intermediate state. The reviewer-facing
+series contains this RFC and five implementation slices.
 
 ### 1. Record business work
 
@@ -632,26 +622,32 @@ session and policy boundaries.
 
 Consolidated proof: [giodl73-repo/openclaw#98](https://github.com/giodl73-repo/openclaw/pull/98).
 
-### 3. Account for work over time
+### 3. Compose managed skills into a workflow
 
-Report normalized tokens and captured USD cost, enforce one inherited root
-budget, and reconstruct the retained business thread without double counting
-shared runs.
-
-Consolidated proof: [giodl73-repo/openclaw#99](https://github.com/giodl73-repo/openclaw/pull/99).
-
-### 4. Reuse OpenClaw's workflow primitives
-
-Let embedded Lobster pipelines invoke policy-filtered OpenClaw tools in the
-current session. Carry the TaskFlow id into Lobster and derive stable per-step
-idempotency keys, while TaskFlow continues to own durable workflow lifecycle.
+Let embedded Lobster invoke policy-filtered managed OpenClaw skills. The
+support-case proof waits for each child to finish, branches on recorded
+evidence, pauses for approval, and passes only selected evidence into the next
+skill. Lobster owns pipeline semantics, TaskFlow owns durable flow identity,
+and OpenClaw owns managed execution and evidence.
 
 Consolidated proof: [giodl73-repo/openclaw#100](https://github.com/giodl73-repo/openclaw/pull/100).
 
-This fourth slice proves the integration seam with tool steps. The next narrow
-slice is managed skill invocation from a Lobster step, with direct correlation
-to invocation records, receipts, usage, and the shared budget. Richer query
-presentation can follow independently.
+### 4. Preserve workflow accounting across pauses
+
+Keep Lobster's existing `CostTracker` summary across approval and structured
+input pauses, expose the summary through embedded and CLI envelopes, and retain
+incurred accounting on cancellation. This adds no new store or pricing model.
+
+Consolidated proof: [giodl73-repo/lobster#1](https://github.com/giodl73-repo/lobster/pull/1).
+
+### 5. Report and constrain workflow spend
+
+Project completed managed-run usage into Lobster's native result convention so
+the workflow total includes actual OpenClaw child work. Preserve `_meta.cost`
+through the OpenClaw runner and demonstrate the existing workflow
+`cost_limit`, without attributing tokens to individual receipts.
+
+Consolidated proof: [giodl73-repo/openclaw#109](https://github.com/giodl73-repo/openclaw/pull/109).
 
 ## Acceptance criteria
 
@@ -669,13 +665,13 @@ The first complete series is successful when:
 9. One explicit invocation records exact skill identity and lifecycle.
 10. One declared isolated child skill runs through existing OpenClaw session
     and policy primitives with complete parent/child lineage.
-11. Each isolated run reports normalized tokens and captured USD cost with its
-    basis when available.
+11. Each isolated run reports normalized tokens and captured cost with its basis
+    when available.
 12. Shared turns are labelled shared rather than divided among skills.
-13. An orchestration total counts each contributing run once.
-14. One durable root budget is inherited by descendants and cannot be widened.
-15. A completed call is charged fully, including failed attempts and overshoot.
-16. Exhaustion stops the next model or managed child action.
+13. A workflow total counts each contributing managed run once.
+14. Workflow accounting survives approval and structured-input pauses.
+15. A caller-provided workflow `cost_limit` uses Lobster's existing enforcement.
+16. Skill metadata cannot set or widen that limit.
 17. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
 
@@ -689,14 +685,14 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - `isolation` provides honest execution and accounting boundaries;
 - invocation and parent/child lineage identify each execution;
 - observed receipts provide evidence for completion gates;
-- normalized usage and shared budgets provide spend controls.
+- normalized usage and workflow limits provide spend controls.
 
 OpenClaw does not need a second durable ordered-step object. TaskFlow already
 owns flow identity, state, waits, revisions, and linked child tasks. Lobster
 already supplies typed JSON pipelines, conditions, retries, branching,
 approvals, and resume. A Lobster step can reference an OpenClaw tool today and,
 next, a managed skill invocation while reusing the same session, evidence,
-usage, cost, budget, and outcome primitives.
+usage, cost, limit, and outcome primitives.
 
 Fan-out, joins, model selection, reservations, and computed gates can evolve in
 those existing layers. They remain runtime capabilities, not portable
