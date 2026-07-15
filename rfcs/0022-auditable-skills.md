@@ -1,5 +1,5 @@
 ---
-title: Agent Skills Metadata for Outcomes and Composition
+title: Auditable Skills
 authors:
   - Gio Lodi
 created: 2026-07-13
@@ -9,16 +9,17 @@ issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 ---
 
-# Agent Skills Metadata for Outcomes and Composition
+# Auditable Skills
 
 ## Summary
 
-Add a small portable metadata vocabulary for the outcomes a skill may produce,
-the other skills it may use, and its isolation needs. Agent implementations can
-combine those author hints with runtime evidence, lineage, spend, and policy
-without introducing a workflow engine into the Agent Skills format. The same
-primitives let an agent retain a searchable history of completed work and form
-a natural stepping stone to richer workflows later.
+Define a portable foundation for skills whose effects can be understood after a
+model run ends. A skill may declare the outcomes it can produce, the other
+skills it may use, and its isolation needs. A runtime records the durable
+evidence it actually observes, together with business context, exact execution
+lineage, token usage, and cost. These primitives make completed work searchable
+and auditable and form a natural stepping stone to workflows without turning
+the Agent Skills format into a workflow engine.
 
 ## Motivation
 
@@ -29,14 +30,20 @@ customer, an authorized refund, or a resolved case. An operator or a later
 agent should be able to find that thread again and understand what actually
 happened.
 
-Agent Skills already describes how reusable capabilities are packaged. This
-RFC adds a small vocabulary for what a skill may accomplish, which other skills
-it may use, and whether its work needs an isolated run. A successful tool call
-may then emit typed evidence such as `inventory.sent`, `payment.authorized`, or
-`invoice.paid`. OpenClaw records the exact skill invocation, child-run lineage,
-model usage, USD cost when available, and evidence actually observed. When
-skills are composed into a workflow, Lobster aggregates that observed usage
-and applies limits through its existing workflow accounting primitives.
+Agent Skills already describes how reusable capabilities are packaged. An
+**auditable skill** adds a clean separation between declared capability and
+observed effect. The package may say what it intends to accomplish, while the
+runtime retains evidence of what actually happened and enough correlation to
+find, count, explain, and cost that work later.
+
+This RFC adds a small vocabulary for what a skill may accomplish, which other
+skills it may use, and whether its work needs an isolated run. A successful
+tool call may then emit typed evidence such as `inventory.sent`,
+`payment.authorized`, or `invoice.paid`. OpenClaw records the exact skill
+invocation, child-run lineage, model usage, USD cost when available, and
+evidence actually observed. When skills are composed into a workflow, Lobster
+aggregates that observed usage and applies limits through its existing workflow
+accounting primitives.
 
 The central invariant is:
 
@@ -177,7 +184,7 @@ OpenClaw records what actually happened:
 The declaration and the evidence remain separate so audit consumers can compare
 expected and observed behavior.
 
-### Portable skill execution hints
+### Portable declarations for auditable skills
 
 OpenClaw follows the [Agent Skills specification](https://agentskills.io/specification),
 which permits an optional string-valued `metadata` map. Skill authors should
@@ -274,7 +281,7 @@ Skill metadata must not contain:
 Those values are caller policy or harness evidence and become stale or unsafe
 when self-declared by a skill package.
 
-### Receipt contract
+### Durable outcome evidence
 
 The producer-owned receipt remains small and generic:
 
