@@ -41,9 +41,10 @@ skills it may use, and whether its work needs an isolated run. A successful
 tool call may then emit typed evidence such as `inventory.sent`,
 `payment.authorized`, or `invoice.paid`. OpenClaw records the exact skill
 invocation, child-run lineage, model usage, USD cost when available, and
-evidence actually observed. When skills are composed into a workflow, Lobster
-aggregates that observed usage and applies limits through its existing workflow
-accounting primitives.
+evidence actually observed. When skills are composed into a workflow, a runner
+aggregates that observed usage and applies caller-owned limits. The current
+proof uses Lobster; the contract also permits a minimal OpenClaw core runner or
+another conforming adapter.
 
 The central invariant is:
 
@@ -56,10 +57,12 @@ orchestration budget policy. This RFC depends on the composition and lifecycle
 boundaries in [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27) when a
 Claw is present; it does not duplicate Claw installation, update, or removal.
 
-The first workflow milestone is not a new step engine. OpenClaw already has
-Lobster for typed pipelines and TaskFlow for durable lifecycle. The missing
-work is to connect those primitives to policy-filtered OpenClaw actions, then
-make managed skill calls measurable with honest spend and enforceable limits.
+The first workflow milestone does not require a new general step engine.
+OpenClaw can use Lobster for typed pipelines and TaskFlow for durable lifecycle,
+or provide a small core sequential runner over the same managed-skill contract.
+The missing work is to connect those paths to policy-filtered OpenClaw actions,
+then make managed skill calls measurable with honest spend and enforceable
+limits.
 
 An operator should be able to answer:
 
@@ -137,6 +140,15 @@ facts. Neither substitutes for the other.
   agents.
 
 ## Proposal
+
+The implementer-facing v1 core contract is captured in
+[`0022/auditable-skills-v1-spec.md`](0022/auditable-skills-v1-spec.md). The
+runner-neutral composition boundary and optional Lobster-to-core migration are
+captured separately in
+[`0022/orchestration-runner-v1-spec.md`](0022/orchestration-runner-v1-spec.md).
+This RFC remains the design rationale and rollout plan; the sidecar specs are
+the concise metadata, receipt, invocation, accounting, runner, and conformance
+references.
 
 ### Three ownership layers
 
@@ -413,15 +425,17 @@ Claw can show which skill revisions produced which outcomes at what cost.
 ### Workflow accounting and limits
 
 OpenClaw does not introduce a second workflow budget ledger. A completed
-managed skill run projects its observed input and output tokens, plus an
-unambiguous model identity when available, into Lobster's native command-result
-shape. Lobster's existing `CostTracker` owns workflow aggregation and its
-existing `cost_limit` owns workflow enforcement.
+managed skill run projects its observed usage, cost, and unambiguous model
+identity into a normalized step result. The selected runner owns workflow
+aggregation and limit enforcement. The current proof maps that result into
+Lobster's native command-result shape, where `CostTracker` owns aggregation and
+`cost_limit` owns enforcement. A conforming core runner can consume the same
+result without Lobster.
 
 Accounting follows the workflow lifecycle:
 
 1. Each completed managed skill step reports its observed run usage once.
-2. Lobster aggregates those step results into one workflow summary.
+2. The selected runner aggregates those step results into one workflow summary.
 3. The summary survives approval and structured-input pauses and resumes.
 4. Cancellation reports cost already incurred when resume state is available.
 5. The caller may set a workflow limit; skill metadata cannot set or widen it.
@@ -554,10 +568,11 @@ and Claws continue to own packaging and lifecycle. A later standards proposal
 can promote the fields after real interoperability proof.
 
 Finally, the proposal does not add workflow syntax to Agent Skills metadata.
-OpenClaw can use Lobster for steps, branching, approvals, and resume; TaskFlow
-for durable identity, status, waits, and lineage; and existing sessions and
-tool policy for execution. Managed skill calls can then reuse the receipt and
-accounting contract in this RFC rather than introducing a second harness.
+OpenClaw can use Lobster for advanced steps, branching, approvals, and resume,
+or a minimal core runner for static sequential composition; TaskFlow retains
+durable identity and lineage, and existing sessions and tool policy retain
+execution authority. Both runner paths reuse the receipt and accounting
+contract in this RFC rather than introducing a second harness.
 
 ## Implementation plan
 
@@ -565,6 +580,12 @@ The prototype series deliberately proved assumptions one at a time. An
 upstream-shaped implementation should consolidate them into coherent vertical
 slices rather than preserve every intermediate state. The reviewer-facing
 series contains this RFC and five implementation slices.
+
+The current workflow proof uses Lobster because it already provides the needed
+advanced lifecycle. That proof validates the normalized managed-run facts, not
+a permanent hard dependency. The orchestration-runner sidecar defines the
+follow-on extraction, minimal core runner, adapter, and dependency-removal
+criteria.
 
 ### 1. Record business work
 
@@ -628,7 +649,8 @@ The first complete series is successful when:
 9. Shared turns are labelled shared rather than divided among skills.
 10. A workflow total counts each contributing managed run once.
 11. Workflow accounting survives approval and structured-input pauses.
-12. A caller-provided workflow `cost_limit` uses Lobster's existing enforcement.
+12. A caller-provided workflow cost limit is enforced by the selected runner;
+    the current Lobster proof uses its existing `cost_limit`.
 13. Skill metadata cannot set or widen that limit.
 14. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
@@ -645,12 +667,12 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - observed receipts provide evidence for completion gates;
 - normalized usage and workflow limits provide spend controls.
 
-OpenClaw does not need a second durable ordered-step object. TaskFlow already
-owns flow identity, state, waits, revisions, and linked child tasks. Lobster
-already supplies typed JSON pipelines, conditions, retries, branching,
-approvals, and resume. A Lobster step can reference an OpenClaw tool today and,
-next, a managed skill invocation while reusing the same session, evidence,
-usage, cost, limit, and outcome primitives.
+OpenClaw does not need a second receipt, usage, or session store. TaskFlow
+already owns durable flow identity and linked child tasks. A minimal core runner
+can cover static sequential dependencies, failure, cancellation, and totals.
+Lobster can remain the advanced runner for typed pipelines, conditions, retries,
+branching, approvals, and resume. Both consume the same managed-skill result and
+reuse the same session, evidence, usage, cost, limit, and outcome primitives.
 
 Fan-out, joins, model selection, reservations, and computed gates can evolve in
 those existing layers. They remain runtime capabilities, not portable
@@ -660,6 +682,8 @@ those existing layers. They remain runtime capabilities, not portable
 
 - [Agent Skills specification](https://agentskills.io/specification)
 - [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27)
+- [Auditable Skills v1 core specification](0022/auditable-skills-v1-spec.md)
+- [Orchestration runner v1 addendum](0022/orchestration-runner-v1-spec.md)
 
 ## Unresolved questions
 
