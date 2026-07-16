@@ -690,6 +690,7 @@ not a required landing stack:
 | [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | One runner-neutral result joining exact native status and durable receipts. |
 | [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Cumulative retry-aware usage retained on the exact native run and exposed by the managed result. |
 | [OpenClaw #113](https://github.com/giodl73-repo/openclaw/pull/113) | Explicit managed run IDs deduplicated into one usage total with an optional caller-owned between-step token ceiling. |
+| [OpenClaw #114](https://github.com/giodl73-repo/openclaw/pull/114) | One host-owned managed-skill dispatch function shared by `sessions_spawn` and future core controllers. |
 | [Lobster #1](https://github.com/giodl73-repo/lobster/pull/1) | Accounting continuity across pause and resume. |
 
 Upstream work should proceed in rounds so maintainers can accept the core
@@ -720,10 +721,14 @@ boundary without first accepting a workflow engine:
    parent may choose an allowed model per direct step. This proves useful
    composition with existing primitives, but makes no durable workflow or
    automatic restart claim.
-6. **Managed dispatch seam and runners.** Add a non-model, host-owned managed
-   skill dispatch boundary that reuses the exact `sessions_spawn` admission
-   path and supports idempotent step attempts. Only then add a deterministic
-   TaskFlow controller and optional Lobster adapter. Keep Lobster's pause/resume
+6. **Managed dispatch seam.** Extract one non-model, host-owned managed skill
+   dispatch function and make `sessions_spawn` call it. The first proof keeps
+   trusted skill resolution, managed identity, current-agent and background-run
+   restrictions, and native subagent dispatch in one path. It adds no plugin
+   permission or workflow state.
+7. **Idempotent runners.** Add host-derived workflow, step, and attempt
+   idempotency to that boundary. Only then add a deterministic TaskFlow
+   controller and optional Lobster adapter. Keep Lobster's pause/resume
    accounting change in its owning repository.
 
 Each round should be reviewable and useful on its own. The current workflow

@@ -103,6 +103,12 @@ state but cannot honestly execute managed skill steps after restart. An
 in-memory callback that advances on child completion is not the core runner
 profile.
 
+The boundary may be proven incrementally. A first slice can extract one
+host-owned function, route `sessions_spawn` through it, and prove identical
+accepted and rejected managed calls. That extraction is not yet the durable
+runner prerequisite unless it also provides the host-derived idempotency and
+conflict behavior above.
+
 ## Runner capabilities
 
 A runner exposes a stable id and explicit capabilities.
