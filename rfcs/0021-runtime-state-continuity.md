@@ -3,7 +3,7 @@ title: Runtime State Continuity
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/5
@@ -29,12 +29,12 @@ host/API requests. The portable contract is capability-based so other hosts and
 channels can adopt different policies and mechanisms while preserving the same
 observable guarantees.
 
-This RFC follows the Hosted Integration and Capability Bindings proposal. It
-reuses that proposal's host integration bundle, typed owner references,
-owner-local activation, Hosting Profiles readiness, Status and Doctor
-projection, generation fencing patterns, and capability-specific carriers.
-Continuity owns checkpoint, publication, restore, hibernate, and wake semantics;
-it does not define another host wiring framework.
+Continuity owns checkpoint, publication, retrieval, restore, hibernate, and
+wake semantics. Portable publication uses ordinary external plugin
+registration: config selects a manifest-declared provider, OpenClaw loads only
+the owning plugin, and receipts bind stable plugin/provider provenance across
+processes. Hosting Profiles, Status, and Doctor remain reusable operational
+patterns, but Hosted Integration bundles and carriers are not prerequisites.
 
 ## Motivation
 
@@ -134,13 +134,13 @@ credentials, retained ingress, placement, and compute lifecycle.
 ```mermaid
 flowchart LR
     OC["OpenClaw continuity owner<br/>inventory, capture, manifest,<br/>restore and readiness"]
-    HI["Hosted Integration binding<br/>typed identity, status,<br/>Doctor and generations"]
+    PP["External publication provider<br/>manifest ownership, scoped load,<br/>stable generation"]
     LH["Lobster host<br/>encrypted publication,<br/>retained ingress and compute"]
     DS["Durable recovery point"]
     NR["New runtime generation"]
 
-    OC -->|"publish exact manifest"| HI
-    HI -->|"host binding"| LH
+    OC -->|"publish exact manifest"| PP
+    PP -->|"provider implementation"| LH
     LH --> DS
     DS -->|"retrieve immutable source"| LH
     LH -->|"provision and inject capabilities"| NR
@@ -206,8 +206,8 @@ the hot-path agent traffic and host storage implementation.
   managed hosts, and OCC.
 - Provide release conformance for checkpoint, sleep, wake, restore, fencing,
   and retained-delivery races.
-- Reuse Hosted Integration registration, selection, readiness, status, Doctor,
-  generation, and carrier conventions.
+- Reuse ordinary plugin registration plus existing readiness, Status, Doctor,
+  generation-fencing, and owner-specific integration conventions.
 
 ## Non-Goals
 
@@ -232,19 +232,18 @@ the hot-path agent traffic and host storage implementation.
 - A continuity-specific host bundle, binding configuration tree, readiness
   system, generic host method registry, or carrier.
 
-## Dependency on Hosted Integration
+## Relationship to Hosted Integration
 
-Hosted Integration is an architectural and implementation prerequisite for
-hosted continuity bindings.
+Hosted Integration is not a prerequisite for continuity publication,
+retrieval, lifecycle authority, or restored admission. Portable publication
+uses ordinary external plugin registration and manifest-declared ownership.
 
-RFC 0020 owns:
+RFC 0020 may still supply independently justified hosted seams for Channels,
+credentials, ingress, and other capabilities:
 
-- one immutable namespaced host integration bundle registration;
-- typed implementation references in semantic-owner configuration;
-- owner-local validation, activation, generation, and readiness evidence;
 - Hosting Profiles required/advisory composition;
 - shared Status and Doctor conventions;
-- capability binding identity, authorization, overload, and failure patterns;
+- capability-specific identity, authorization, overload, and failure patterns;
   and
 - native or capability-specific carrier selection without a generic host bus.
 
@@ -265,9 +264,9 @@ This RFC owns:
 The ownership composition is:
 
 ```text
-host bundle registers continuity-related implementations
-  -> continuity config selects typed publication binding and CAPE policy
-  -> continuity owner validates and activates its binding
+external plugin manifest declares continuity publication provider
+  -> continuity config selects provider ID and CAPE policy
+  -> continuity resolves one enabled owner and loads only that plugin
   -> existing Channel/secret/workspace owners activate their own bindings
   -> each owner publishes trusted readiness evidence
   -> Hosting Profile requires the deployment's end-to-end criteria
@@ -302,7 +301,7 @@ invariants and observable guarantees hold.
 | --- | --- | --- | --- |
 | What is the user-facing objective? | **Core invariant:** recoverable **scale from zero** recreates the same logical runtime on fresh compute after all runtime processes have gone away. State continuity is the enabling contract; scale to zero is the cost optimization. | Backup or safe shutdown alone does not ensure that a message, user request, or cron deadline can recreate a usable runtime. | Another product contract owns end-to-end wake, restore, and delivery. |
 | How do users adopt continuity without taking on the whole lifecycle? | **Core product model:** expose the independent continuity features through the monotonic operator-facing **CAPE** levels: `Conventional`, `Archived`, `Portable`, and `Elastic`. CAPE is a bundle projection and likely one setting, not the architecture or API decomposition. | Backup, automatic replacement, and scale-from-zero require successively stronger coordination. Treating them as one switch either burdens local users or hides weaker guarantees; organizing implementation around transitions would overfit the operator model. | Evidence shows the guarantees are not monotonic, require incompatible state formats, or the terminology fails user comprehension testing. |
-| Does continuity define its own hosted wiring model? | **Core boundary:** no. Hosted Integration is a prerequisite; continuity follows its host bundle, typed owner reference, readiness, Status, Doctor, generation, migration, and carrier patterns. | Continuity needs one new semantic owner and publication interface, not another composition system. | Hosted Integration cannot express a specific continuity binding or lifecycle dependency, with source-backed proof of the missing seam. |
+| Does continuity define its own hosted wiring model? | **Core boundary:** no. Publication uses ordinary manifest-declared plugin registration; continuity reuses readiness, Status, Doctor, and generation-fencing patterns without depending on a host bundle or generic carrier. | Continuity needs one fixed publication interface, not another composition system. | Ordinary scoped plugin loading cannot preserve exact provider provenance across processes. |
 | Is hydration a Hosting Profile? | **Implementation hypothesis:** no. A stable hosting profile declares recoverable scale-from-zero support; startup selects `clean` or `resume(checkpoint)`. Hydration is a lifecycle phase that contributes readiness evidence. | Profiles describe durable hosting capabilities, while hydration describes one invocation's startup path. | Clean and resumed runtimes require materially different long-lived host capabilities. |
 | Which ingress paths are supported first? | **Initial scope:** Lobster paths that can wake compute without a resident OpenClaw process: durable Teams inbox, cron deadlines, and host/API user requests. | Lobster already retains Teams activities outside the container and delivers after container readiness. Channels whose socket or poller lives inside OpenClaw cannot wake absent compute. | Another channel externalizes ingress with durable retention, wake, fencing, and redelivery proof. |
 | Who owns cron semantics while the runtime sleeps? | **Core invariant:** OpenClaw owns definitions, due decisions, run state, catch-up, and duplicate suppression. The host retains only the checkpoint-bound earliest `nextRequiredAt` and provisions compute early enough to meet it. | Mirroring cron semantics into the host creates two schedulers and has already produced stale-state and duplicate-fire failures. | OpenClaw deliberately delegates scheduler authority through a separate RFC. |
@@ -317,7 +316,7 @@ invariants and observable guarantees hold.
 | What loss guarantees apply? | **Core invariant:** planned hibernation adds no loss beyond a successful conventional clean shutdown and captures the resulting persisted state. **Profile policy:** forced termination restores the latest host-accepted recovery point with a visible time-based RPO. | This RFC transports existing state; it does not strengthen the consistency or acknowledgement semantics of the stores being captured. | A separate storage RFC defines stronger aggregate consistency or durability semantics. |
 | Who initiates hibernation? | **Profile policy:** the host proposes hibernation based on idle and cost policy. OpenClaw may refuse because of active work, unsafe state, or an imminent deadline. | Compute policy belongs to the host, while only OpenClaw can determine semantic quiescence. | OpenClaw gains a product-level reason to request sleep independent of host policy. |
 | How is shutdown raced against newly arriving work? | **Core invariant:** sleep authorization is granted only when no wake work is pending and is revoked by new work. | Without an atomic host decision, a runtime can publish a final checkpoint and be destroyed while work is already queued for it. | Host ingress can prove an equivalent atomic handoff without explicit authorization state. |
-| Are generation, sleep, and restore authority separate leases? | **Implementation hypothesis:** no. One host-issued lifecycle record carries the stable owner generation and transitions through `active`, `draining`, revocable `sleep-authorized`, `restore-held`, and `restore-committed` states. After destruction, the durable checkpoint/wake record persists without a process lease. | One authority avoids races and contradictory ownership between independently renewed generation, sleep, and restore leases. The restore hold extends the Hosted Integration owner lifecycle; it does not create another generation domain. | The host cannot make work admission, sleep authorization, and restore exclusion conditional on one durable lifecycle record. |
+| Are generation, sleep, and restore authority separate leases? | **Implementation hypothesis:** no. One host-issued lifecycle record carries the stable owner generation and transitions through `active`, `draining`, revocable `sleep-authorized`, `restore-held`, and `restore-committed` states. After destruction, the durable checkpoint/wake record persists without a process lease. | One authority avoids races and contradictory ownership between independently renewed generation, sleep, and restore leases. The restore hold extends the existing lifecycle owner; it does not create another generation domain. | The host cannot make work admission, sleep authorization, and restore exclusion conditional on one durable lifecycle record. |
 | How is a recovery point published? | **Core invariant:** the host atomically makes one immutable manifest and its earliest wake deadline resumable, then returns a receipt bound to that exact manifest. Components do not independently become the aggregate recovery point. | Partial artifact publication or an unbound wake deadline can produce a checkpoint that restores incompletely or wakes late. | The storage substrate provides an equivalent transactional aggregate over independently published components. |
 | Is one global mutation generation required? | **Core boundary:** no. The manifest records native component consistency identities where they already exist, plus capture time and artifact digests. This RFC does not add mutation participation to existing writers. | OpenClaw currently has global SQLite, per-agent SQLite, file-backed sessions/config, and workspace state without one complete mutation ordering. | A separate storage-consistency RFC introduces and proves a global ordering. |
 
@@ -343,7 +342,7 @@ invariants and observable guarantees hold.
 | How is secret-bearing state handled? | **Core invariant:** host-managed credentials are re-issued or re-resolved and their values do not enter recovery artifacts or manifest metadata. A profile may explicitly capture only non-reissuable runtime-owned identity state required to preserve logical identity, using encrypted runtime-scoped artifacts. | Lobster already projects Graph, proxy/session, and provider credentials at runtime rather than persisting them with the workspace. Blindly copying credentials expands the recovery system's secret boundary. | A required integration cannot re-issue credentials or separate runtime identity from host-managed secrets. |
 | What does Portable require beyond copying state files? | **Core invariant:** the complete restore dependency closure must be satisfiable on fresh compute. Each dependency is captured, re-resolved from an external authority, reconstructed from declared inputs, or reported as a blocking incompatibility. | State bytes are unusable if identity keys, credentials, configuration, plugins, workspace, or compatible runtime support are missing. | OpenClaw adopts one self-contained state format with no external restore dependencies. |
 | May Portable depend on shared host capabilities? | **Core invariant:** yes. The recovery manifest declares logical capability requirements, and the destination Hosting Profile binds them to compatible providers available in its portability domain. | Credentials, identity, artifact storage, workspace access, and generation authority may already be host services shared across compute cells and should not be copied into every checkpoint. | A required capability cannot expose a stable cross-cell contract or destination authorization. |
-| How is restore fenced from launcher restart and wake? | **Core invariant:** the existing host-issued lifecycle record enters a non-expiring `restore-held` state for the stable runtime owner and current owner generation before any original target is created. Every start, restart, wake, health-recovery, warm-up, diagnostic, and autoscaling path rejects while held. Commit binds the exact restore receipt and permits exactly one matching restored startup; it does not merely delete the hold. Unknown authority and stale generations fail closed. | A Gateway process lock cannot stop an adapter, supervisor, scheduler, or replacement container. Lobster's existing proxy-pipe owner lease is advisory, TTL-based, and may fail open on authority uncertainty, so it cannot protect partial restore. Reusing the lifecycle owner and generation follows Hosted Integration without adding a continuity lease service. | A launcher can prove an equivalent atomic stop, restore, and exactly-once restored-start transition across every start path without durable hold state. |
+| How is restore fenced from launcher restart and wake? | **Core invariant:** the existing host-issued lifecycle record enters a non-expiring `restore-held` state for the stable runtime owner and current owner generation before any original target is created. Every start, restart, wake, health-recovery, warm-up, diagnostic, and autoscaling path rejects while held. Commit binds the exact restore receipt and permits exactly one matching restored startup; it does not merely delete the hold. Unknown authority and stale generations fail closed. | A Gateway process lock cannot stop an adapter, supervisor, scheduler, or replacement container. Lobster's existing proxy-pipe owner lease is advisory, TTL-based, and may fail open on authority uncertainty, so it cannot protect partial restore. Reusing the lifecycle owner and generation avoids adding a continuity lease service. | A launcher can prove an equivalent atomic stop, restore, and exactly-once restored-start transition across every start path without durable hold state. |
 | How does continuity affect readiness? | **Core invariant:** readiness stays closed until required restore validation and scheduler reconciliation complete. **Implementation hypothesis:** one aggregate continuity readiness provider reports that state while component detail remains in continuity diagnostics. | This retains the readiness provider mental model without creating one readiness condition per artifact or a parallel readiness system. | Operators need independently routable readiness policy for individual continuity components. |
 | Must overdue cron jobs finish before readiness? | **Profile policy:** no. Before readiness, OpenClaw reconciles due state, applies each job's catch-up policy, suppresses completed runs, and durably queues remaining catch-up work. Execution begins under normal scheduling after readiness. | Long-running overdue jobs must not make wake readiness unbounded, but retained ingress cannot begin until due work is reconstructed safely. | Source evidence shows a due job must complete before retained ingress can safely run. |
 
@@ -414,7 +413,7 @@ run inside OpenClaw:
 
 | Verb | OpenClaw responsibility | Host responsibility, when present |
 | --- | --- | --- |
-| `checkpoint` | Schedule and orchestrate native online capture, validate required state surfaces, produce the exact manifest, and invoke the selected publication binding. The built-in local binding can complete this without a host. | Provide a hosted publication binding that durably accepts and retains the exact manifest according to policy. |
+| `checkpoint` | Schedule and orchestrate native online capture, validate required state surfaces, produce the exact manifest, and invoke the selected publication provider. Local materialization can complete without an external provider. | Operate an external provider that durably accepts and retains the exact manifest according to policy. |
 | `restore` | Select an explicitly requested or policy-compatible immutable point, materialize it, validate integrity and compatibility, reconstruct declared state, reconcile cron, and hold readiness closed until complete. | For automatic replacement, authorize the point, provision the destination, acquire and commit the durable restore hold, re-issue external capabilities and credentials, and admit only the matching restored startup. |
 | `hibernate` | Accept a host proposal, close admission, report blockers, drain work, complete clean shutdown, and produce the closed-state handoff result. | Retain new ingress, perform post-exit closed-state capture when required, atomically accept the final point and wake intent, then remove compute. |
 | `wake` | Define the checkpoint-bound semantic deadline and perform restored startup, scheduler reconciliation, and readiness validation after provisioning. | Observe retained ingress or the deadline, allocate one fenced generation, inject capabilities, and withhold retained delivery until OpenClaw is ready. |
@@ -647,6 +646,12 @@ A Hosting Profile may select a capability level and supply policy defaults.
 Selecting a level must fail validation when a required capability is absent; it
 must not silently degrade to a weaker guarantee.
 
+The normative level requirements and conformance rules are defined in the
+[State CAPE v1 Specification](0021/state-cape-v1-spec.md).
+Optional composition with canonical Readiness, Hosting Profiles, and Hosted
+Integration owner evidence is defined in the
+[State CAPE Readiness and Hosting Composition v1 Addendum](0021/readiness-hosting-composition-v1-addendum-spec.md).
+
 ### Configuration and hosted wiring
 
 CAPE is continuity-owner configuration. Hosting Profiles declares whether the
@@ -686,13 +691,13 @@ Illustrative configuration:
 
 Names and shape are provisional. The ownership rules are normative:
 
-- `continuity` selects CAPE level, checkpoint/restore policy, and a typed
-  continuity-owned publication binding;
+- `continuity` selects CAPE level, checkpoint/restore policy, and one
+  continuity-owned publication provider;
 - `secrets`, Channels, workspaces, and other dependency owners keep their
   existing configuration and registries;
-- the host integration bundle registers `lobster/recovery`,
-  `lobster/vault`, `lobster/teams`, and other implementations as independently
-  owned contracts;
+- the publication plugin registers its provider directly; `lobster/vault`,
+  `lobster/teams`, and other implementations remain independently owned
+  contracts;
 - host-only idle, placement, cold-start lead, and compute-retention policy stay
   in the host;
 - a Hosting Profile requires continuity and dependency-owner readiness
@@ -704,9 +709,10 @@ Names and shape are provisional. The ownership rules are normative:
 Representative owner criteria are:
 
 ```text
-continuity.archived
-continuity.portable
-continuity.elastic
+openclaw.continuity-archived
+openclaw.continuity-portable
+openclaw.continuity-elastic
+openclaw.continuity-recovery-point-current
 channel.msteams.wake-capable
 secrets.lobster-vault
 ```
@@ -751,9 +757,9 @@ commit. They do not publish artifacts, choose host storage, decide
 canonical formats.
 
 Host publication is different: continuity owns one typed publication
-capability interface and selects a local or hosted binding registered through
-Hosted Integration. It is not another state-surface contribution and does not
-create a universal provider registry.
+capability interface and selects one manifest-declared external provider. It is
+not another state-surface contribution and does not create a universal provider
+registry.
 
 The release conformance inventory accounts for every required existing state
 surface, including explicit reconstructed, external, and ephemeral
@@ -793,8 +799,8 @@ surface must either drain and stop before final capture or be fenced from that
 surface. In-flight Channel delivery, API writes, workspace PATCH operations,
 and sidecar writes are blockers until their semantic owner reports a completed
 or safely retryable disposition. Continuity does not invent a generic drain
-callback; Hosted Integration owner readiness and lifecycle evidence identify
-the blocking owner.
+callback; semantic-owner readiness and lifecycle evidence identify the
+blocking owner.
 
 The semantic lifecycle is:
 
@@ -819,9 +825,9 @@ is the last host-accepted point.
 
 The host uses the existing Gateway lifecycle integration point to propose and
 observe handoff. It does not invoke continuity through a generic host provider
-method. Hosted Integration may supply the host's authenticated Gateway client,
-publication binding, Channel endpoints, and required readiness criteria, each
-through its native owner contract.
+method. A host may supply an authenticated Gateway client, external publication
+provider, Channel endpoints, and required readiness criteria, each through its
+native owner contract.
 
 Illustrative result:
 
@@ -879,9 +885,9 @@ is authoritative for the aggregate artifact manifest. The selected publication
 binding is authoritative for remote acceptance. A completed local snapshot
 never implies remote durability by itself.
 
-Continuity defines the publication capability semantics anticipated by Hosted
-Integration. A local filesystem, mounted volume, sidecar, object-store client,
-or hosted implementation may bind the same interface.
+Continuity defines the publication capability semantics. A local filesystem,
+mounted volume, sidecar, object-store client, or hosted implementation may bind
+the same interface through an external plugin.
 
 A publication commit contains:
 
@@ -894,27 +900,24 @@ A publication commit contains:
 - idempotency identity and deadline.
 
 A successful receipt binds the exact runtime, generation, checkpoint, manifest
-digest, durability boundary, accepted time, wake intent, publication binding
-generation, and opaque storage receipt. Exact replay is idempotent; reuse of a
-checkpoint ID with another digest conflicts; stale generations and late results
-cannot advance recovery status.
+digest, durability boundary, accepted time, wake intent, publication
+plugin/provider/version/generation, and opaque storage receipt. Exact replay is
+idempotent; reuse of a checkpoint ID with another digest conflicts; stale
+generations and late results cannot advance recovery status.
 
 The same continuity-owned interface supplies bounded manifest/artifact
 retrieval needed for restore. Retention and garbage collection remain host
 policy constrained by active restores, minimum retained points, and immutable
 lineage.
 
-Hosted Integration owns registration, typed selection, binding identity,
-authorization, readiness, overload, Status, Doctor, and carrier realization.
-This RFC owns artifact meaning, commit/retrieval semantics, receipts, replay,
-lineage, restore use, and `safeToDestroy`.
+The plugin manifest declares provider ownership, continuity config selects one
+provider ID, and the managed operation resolves exactly one enabled owner before
+runtime import. The receipt binds plugin ID, provider ID, contract version,
+stable provider generation, artifact identity, and immutable acceptance.
+Process-local registry identity is not portable authority.
 
-A hosted publication binding uses RFC 0020 identity and authorization:
-issuer/audience, provider instance, allowed interface/version/operations,
-tenant/runtime binding, publication-owner and host-bundle generations, expiry,
-credential identity, and proof of possession. This RFC adds checkpoint,
-manifest-digest, durability-boundary, and wake-intent binding to the semantic
-receipt.
+The implementer-facing contract is defined in the
+[Portable Publication Provider v1 Specification](0021/portable-publication-provider-v1-spec.md).
 
 Hosts may also choose a local-only durability profile. In that case,
 `safeToDestroy` means safe for the declared local persistence boundary, not safe
@@ -1011,10 +1014,10 @@ supplies an approved reconstruction or encrypted identity mechanism.
 
 On startup, state materialization and dependency resolution precede any
 attachment or sidecar that can read or mutate restored surfaces. Each owner then
-activates and publishes readiness through Hosted Integration. Gateway admission
-opens only after continuity restore and every Hosting Profile-required owner
-criterion are `True`; user-facing sidecars must not report ready against
-pre-restore or partially migrated state.
+activates and publishes its readiness evidence. Gateway admission opens only
+after continuity restore and every Hosting Profile-required owner criterion are
+`True`; user-facing sidecars must not report ready against pre-restore or
+partially migrated state.
 
 Restore failures use structured component, reason, retryability, and operator
 action fields. OpenClaw must not silently start with an incomplete required
@@ -1042,8 +1045,8 @@ OpenClaw remains authoritative for semantic work:
 An ingress is wake-capable only when its owner proves durable pre-ack
 retention, stable dedupe identity, atomic sleep revocation and wake, delivery
 only to the current generation after readiness, and observable retry/failure
-state. Hosted Integration Channel endpoints are the attachment model; this RFC
-does not define a normalized ingress method.
+state. Channel-owned endpoints are the attachment model; this RFC does not
+define a normalized ingress method.
 
 The wake sequence is:
 
@@ -1051,7 +1054,7 @@ The wake sequence is:
 retained activity or wake deadline becomes due
   -> host revokes sleep authorization and coalesces provisioning
   -> host allocates fresh compute and a new runtime generation
-  -> publication binding retrieves the selected recovery point
+  -> publication provider retrieves the selected recovery point
   -> continuity restores and validates dependency closure
   -> OpenClaw reconciles cron and durably queues catch-up work
   -> continuity and dependency-owner readiness become True
@@ -1099,22 +1102,22 @@ separately. The restored runtime must not reuse the source generation authority
 or publish under the source generation. Admission remains closed until required
 component validation and any allowed migrations complete.
 
-Continuity identity is distinct from Hosted Integration binding identity:
+Continuity identity is distinct from provider and integration identity:
 
 | Identity | Owner | Purpose |
 | --- | --- | --- |
 | logical runtime ID | continuity/deployment | Names the runtime whose state continues. |
 | runtime generation | lifecycle host plus continuity admission | Fences which compute may accept root work and advance recovery lineage. |
 | checkpoint ID and parent | continuity | Names one immutable recovery point in the runtime lineage. |
-| owner binding generation | publication, Channel, secret, or other semantic owner | Fences that owner's effective configured binding. |
-| host bundle generation | Hosted Integration | Identifies the admitted host implementation set. |
-| carrier incarnation | selected binding/carrier | Distinguishes reconnects without changing semantic owner configuration. |
+| publication plugin/provider/version/generation | continuity plus external provider plugin | Fences cross-process publication and retrieval compatibility. |
+| owner binding generation | Channel, secret, or other semantic owner | Fences that owner's effective configured binding. |
+| carrier incarnation | selected non-publication binding/carrier | Distinguishes reconnects without changing semantic owner configuration. |
 
 No generation substitutes for another. A publication result must match the
-runtime generation, publication owner generation, and admitted host bundle
-generation. Channel delivery after wake must match the runtime generation and
-the Channel owner's binding generation. Carrier reconnect within the same
-owner generation does not create a new runtime generation.
+runtime generation and frozen publication plugin/provider/version/generation.
+Channel delivery after wake must match the runtime generation and the Channel
+owner's binding generation. Carrier reconnect within the same owner generation
+does not create a new runtime generation.
 
 ### Recovery status projection
 
@@ -1141,10 +1144,10 @@ A cheap host-facing projection may report whether a recovery point is
 declared durability boundary. Rich Status includes:
 
 - selected CAPE level and policy provenance;
-- desired and effective publication binding;
+- desired and effective publication provider;
 - latest local capture and host-accepted recovery point;
 - RPO target and actual age;
-- runtime, owner-binding, host-bundle, and carrier generations;
+- runtime, publication-provider, owner-binding, and carrier generations;
 - lifecycle phase and active blockers;
 - selected restore source, fallback depth, and compatibility result;
 - dependency-closure classifications and unresolved requirements;
@@ -1167,8 +1170,8 @@ authority and an explicit fallback expiry.
 Continuity emits auditable lifecycle facts for checkpoint acceptance,
 destruction authorization, generation grant/loss, quarantine entry/exit,
 selected fallback and RPO regression, wake attempts, and destructive lineage
-reset. Events bind runtime, generation, checkpoint, owner-binding, and host
-bundle identities while redacting secret values and protected artifact
+reset. Events bind runtime, generation, checkpoint, publication-provider, and relevant
+owner-binding identities while redacting secret values and protected artifact
 metadata.
 
 Planned handoff remains an explicit drain, clean-shutdown, capture, and
@@ -1185,11 +1188,11 @@ At minimum, the model distinguishes:
 | Area | Required failures |
 | --- | --- |
 | capture | unsupported or missing state surface, component timeout/cancellation, native capture failure, integrity failure |
-| publication | unresolved/incompatible binding, denied, unavailable, overloaded, timed out, unconfirmed commit, quota exhaustion, digest conflict, stale generation |
+| publication | unresolved/incompatible provider, denied, unavailable, overloaded, timed out, unconfirmed commit, quota exhaustion, digest conflict, stale generation |
 | planned handoff | active-work blocker, authority conflict/expiry, sleep revocation by new work, invalidating clean-shutdown warning, final capture or publication failure |
 | restore | missing/corrupt artifact, unsupported schema/runtime/plugin, unresolved secret or shared capability, ordering/migration failure, exhausted fallback lineage |
 | wake | wake registration rejection, missed deadline, provisioning failure, unsupported ingress, retained-delivery retry exhaustion |
-| fencing | stale runtime, owner-binding, host-bundle, carrier, restore, or receipt identity; unknown hold authority; late result ignored; authority lost during active work |
+| fencing | stale runtime, publication-provider, owner-binding, carrier, restore, or receipt identity; unknown hold authority; late result ignored; authority lost during active work |
 
 An unconfirmed publication timeout may retry only the same idempotency identity
 and manifest digest. It cannot allocate a new checkpoint ID and infer that the
@@ -1207,8 +1210,7 @@ resulting proven capability set into operator-visible levels.
   runtime-wide pause;
 - capture timeout, cancellation, saturation, memory/disk/I/O bounds, and event
   loop impact do not crash or stall ordinary Gateway work;
-- local and hosted publication bindings satisfy the same commit/retrieval
-  semantics;
+- external publication providers satisfy the same commit/retrieval semantics;
 - local materialization is not reported as host publication;
 - receipts bind exact runtime, checkpoint, artifact, manifest, durability, and
   binding generations;
@@ -1224,7 +1226,7 @@ resulting proven capability set into operator-visible levels.
   before final capture and activate only after restored state is available;
 - an invalidating shutdown warning or failed publication cannot report
   `safeToDestroy`;
-- stale runtime, publication-owner, host-bundle, and carrier results cannot
+- stale runtime, publication-provider, owner-binding, and carrier results cannot
   complete a newer handoff;
 - restore onto fresh compute uses a new runtime generation and immutable source
   checkpoint;
@@ -1253,12 +1255,10 @@ resulting proven capability set into operator-visible levels.
 - quarantine prevents wake, generation grant, delivery, and implicit disaster
   reset while preserving retained work and recovery evidence.
 
-Hosted Integration conformance additionally proves typed bundle registration,
-owner reference resolution, local/hosted binding equivalence, required and
-advisory Hosting Profile posture, Status/Doctor provenance, missing-binding
-failure without weaker fallback, fleet-consumable stable reasons, lifecycle
-audit identities, lifecycle-owner restore-hold adoption, and secret/artifact
-metadata redaction.
+Adjacent hosted-capability conformance proves required and advisory Hosting
+Profile posture, Status/Doctor provenance, missing-binding failure without
+weaker fallback, fleet-consumable stable reasons, lifecycle audit identities,
+lifecycle-owner restore-hold adoption, and secret/artifact metadata redaction.
 
 ### Host persistence migration and deletion gate
 
@@ -1275,30 +1275,20 @@ comparison, observable, owned, and time-bounded.
 
 ### Implementation sequence
 
-This implementation stack follows the Hosted Integration implementation stack.
-No continuity PR should introduce an alternative bundle registry, typed
-reference resolver, owner readiness convention, Status/Doctor inventory,
-generation model, or generic carrier.
-
-Prerequisite Hosted Integration work establishes:
-
-1. immutable host integration bundle registration;
-2. typed owner-selected capability bindings;
-3. owner-produced Hosting Profiles criteria;
-4. effective binding Status and Doctor;
-5. binding and host-bundle generation fencing; and
-6. capability-specific local/hosted conformance conventions.
+This implementation stack follows native OpenClaw seams. No continuity PR
+should introduce a continuity-specific composition framework, readiness system,
+Status/Doctor inventory, generic carrier, or bundled product extension.
 
 Continuity then lands:
 
 1. **Continuity owner model:** CAPE configuration, lifecycle vocabulary,
    state-surface inventory, recovery status, and conformance fixtures.
 2. **Checkpoint and restore:** online capture orchestration, manifests, local
-   publication binding, retrieval, explicit restore, RPO, retention, and
+   publication provider, retrieval, explicit restore, RPO, retention, and
    fallback.
-3. **Hosted publication:** continuity-owned publication interface registered
-   and selected through Hosted Integration, with Lobster's encrypted durable
-   binding and required/advisory profile evidence.
+3. **Portable publication:** continuity-owned external provider interface,
+   manifest-declared ownership, scoped plugin loading, immutable acceptance,
+   and fresh-process retrieval proof.
 4. **Restore hold owner/adopter pair:** an OpenClaw continuity/lifecycle-owner
    contract and conformance fixture, followed by a Lobster implementation that
    binds the stable tenant/user owner generation and fences both runtime-side
@@ -1313,21 +1303,11 @@ Continuity then lands:
    Lobster path-copy/restore ordering and private lifecycle signals, and
    documented rollback expiry.
 
-Each PR reuses the interface, binding, readiness, provenance, migration, and
-carrier patterns established by Hosted Integration.
-
 Implementation branches start from the latest OpenClaw `main` by default.
-Continuity owner modeling and the local Archived checkpoint/restore path may
-begin before Hosted Integration lands because they do not require a hosted
-binding, host generation authority, or reverse carrier. They rebase onto
-`main` as prerequisite work lands.
-
-Hosted publication and the Portable/Elastic stages must not merge until the
-exact Hosted Integration seams they consume are stable on `main`. A branch may
-temporarily stack on an unmerged prerequisite only when a direct compile-time
-or test dependency makes independent work impossible; it should return to a
-`main` base before normal review. Continuity must not copy provisional Hosted
-Integration types into a compatibility layer merely to avoid that dependency.
+Portable publication branches directly from the continuity capture/restore
+stack and must not add a Hosted Integration or bundled product dependency.
+Elastic may consume separately justified hosted Channel or ingress seams after
+their contracts are stable.
 
 Validation starts immediately against current `main`: complete the state
 inventory, trace clean-shutdown ordering, exercise existing local
@@ -1360,7 +1340,7 @@ compatibility.
 ### Why distinguish materialized and published?
 
 Only each state owner can authoritatively create and verify its capture. Only
-the selected publication binding can claim that its durability boundary
+the selected publication provider can claim that its durability boundary
 accepted the exact manifest. Merging the claims would overstate durability.
 
 ### Why not add global consistency?
