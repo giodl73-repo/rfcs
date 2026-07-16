@@ -3,7 +3,7 @@ title: Auditable Skills
 authors:
   - Gio Lodi
 created: 2026-07-13
-last_updated: 2026-07-15
+last_updated: 2026-07-16
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
@@ -509,6 +509,20 @@ purpose-built business-evidence store, not a duplicate CRM or workflow ledger.
 Public CLI, Gateway, and UI surfaces may evolve independently around the same
 record contracts.
 
+The first product surface should make receipts feel like a normal OpenClaw
+resource rather than a special trajectory filter. Exact command names are not
+normative, but a useful CLI shape is:
+
+```text
+openclaw receipts list --type case.resolved
+openclaw receipts count --type invoice.paid --all-agents
+openclaw receipts show <receipt-id>
+```
+
+The CLI, Gateway API, plugins, and workflow runners should call the same
+storage-neutral `get`, `list`, and `count` boundary. None should open SQLite or
+scan session databases directly.
+
 ### From a run to a durable work history
 
 Consider an OpenClaw agent supporting customers over email. The channel maps an
@@ -545,6 +559,26 @@ forms, or authoritative customer data. Long-term revisitability also depends
 on explicit retention, backup, and export policy. Those are product and
 deployment concerns built on the record contract, not additional `SKILL.md`
 metadata.
+
+### Operational readiness
+
+The initial local SQLite profile is useful before it becomes a regulated audit
+system, but a production implementation still needs ordinary data-store
+operations:
+
+- explicit retention and bounded cleanup independent of session rotation;
+- schema-version checks and atomic migrations;
+- health diagnostics for an inaccessible, locked, corrupt, or newer database;
+- backup and export through consistent snapshots rather than live file copies;
+- access control and redaction appropriate for evidence such as authorization
+  codes;
+- bounded receipt size, query limits, and stable pagination.
+
+OpenClaw Doctor should report store health and actionable recovery guidance. A
+store failure remains contained from the completed tool result, but it must be
+visible; the runtime must not silently fall back to a per-agent store or claim
+that evidence was retained when it was not. Tamper evidence and regulatory
+attestation remain separate future layers.
 
 ### Failure behavior
 
@@ -587,63 +621,76 @@ durable identity and lineage, and existing sessions and tool policy retain
 execution authority. Both runner paths reuse the receipt and accounting
 contract in this RFC rather than introducing a second harness.
 
+### Agent Skills interoperability path
+
+The standards opportunity is intentionally smaller than the OpenClaw product
+surface. An Agent Skills proposal would standardize only optional declarative
+vocabulary such as `outcomes`, `uses-skills`, and `isolation`, plus the rule
+that declarations are not evidence or authority. Receipt storage, session
+identity, model accounting, and workflow execution remain harness concerns.
+
+Before proposing community vocabulary, the same example skill should be read
+by at least two independent harness implementations or compatibility fixtures.
+They should agree on metadata parsing and declared intent while remaining free
+to use different receipt stores, invocation engines, and query surfaces. Until
+then, implementations may incubate namespaced aliases without placing
+OpenClaw-specific orchestration names in portable `SKILL.md` files.
+
 ## Implementation plan
 
-The prototype series deliberately proved assumptions one at a time. An
-upstream-shaped implementation should consolidate them into coherent vertical
-slices rather than preserve every intermediate state. The reviewer-facing
-series contains this RFC and five implementation slices.
+The fork POC deliberately proved assumptions one step at a time. Those five
+implementation slices remain useful evidence, but they are not the proposed
+upstream landing stack:
 
-The current workflow proof uses Lobster because it already provides the needed
-advanced lifecycle. That proof validates the normalized managed-run facts, not
-a permanent hard dependency. The orchestration-runner sidecar defines the
-follow-on extraction, minimal core runner, adapter, and dependency-removal
-criteria.
+| Evidence | What it proved |
+| --- | --- |
+| [OpenClaw #97](https://github.com/giodl73-repo/openclaw/pull/97) | Shared durable receipts, trajectory references, exact query, and count. |
+| [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, managed invocation, lineage, and run usage. |
+| [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | Full-receipt resolution and evidence-driven workflow composition. |
+| [Lobster #1](https://github.com/giodl73-repo/lobster/pull/1) | Accounting continuity across pause and resume. |
+| [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Managed child usage rolled into workflow totals and limits. |
 
-### 1. Record business work
+Upstream work should proceed in rounds so maintainers can accept the core
+boundary without first accepting a workflow engine:
 
-Carry typed receipts through successful tool results, record them in a
-configurable shared SQLite store, and leave bounded references in existing
-session/run trajectories. This proves that an operator can search across
-agents, revisit the originating work thread, count outcomes by type, and
-inspect evidence such as a payment authorization code.
+1. **RFC and core receipts.** Review this RFC and sidecars, then land one small
+   OpenClaw vertical slice containing trusted tool receipts, the configurable
+   shared store, trajectory references, and storage-neutral `get`, `list`, and
+   `count`. This round has no skill metadata or workflow dependency.
+2. **Managed invocation.** Add the optional Agent Skills declarations, exact
+   executed-skill identity, isolated invocation, lineage, and run-level usage
+   projection after the receipt boundary settles.
+3. **Runner adapters and accounting.** Expose the normalized managed-step
+   result to a minimal core runner and optional Lobster adapter. Combine the
+   workflow composition and spend projection learned in #100 and #109; keep
+   Lobster's pause/resume accounting change in its owning repository.
 
-Consolidated proof: [giodl73-repo/openclaw#97](https://github.com/giodl73-repo/openclaw/pull/97).
+Each round should be reviewable and useful on its own. The current workflow
+proof uses Lobster because it already provides the needed advanced lifecycle;
+it validates the runner-neutral contract rather than establishing a permanent
+hard dependency.
 
-### 2. Manage skill invocation
+## Reference success scenario
 
-Consume the portable metadata in a real invocation path. Record exact skill
-identity, lifecycle, and parent/child lineage while reusing existing OpenClaw
-session and policy boundaries.
+The first release proof should be one repeatable support-email fixture rather
+than a broad workflow showcase:
 
-Consolidated proof: [giodl73-repo/openclaw#98](https://github.com/giodl73-repo/openclaw/pull/98).
+1. A provider conversation maps to a stable OpenClaw session.
+2. A trusted verification tool records `customer.verified` with a subject and
+   authorization code in the shared receipt store.
+3. An authorized later run, including one owned by another local agent, finds
+   that receipt by exact type or subject without scanning the original session
+   database.
+4. A resolution tool records `case.resolved`; its trajectory contains only the
+   receipt reference.
+5. An operator lists both outcomes, counts resolutions across agents, shows the
+   full evidence by receipt ID, and reopens the originating session.
+6. The workflow proof gates resolution on the observed verification receipt and
+   reports the child runs' token usage once.
 
-### 3. Compose managed skills into a workflow
-
-Let embedded Lobster invoke policy-filtered managed OpenClaw skills. The
-support-case proof waits for each child to finish, branches on recorded
-evidence, pauses for approval, and passes only selected evidence into the next
-skill. Lobster owns pipeline semantics, TaskFlow owns durable flow identity,
-and OpenClaw owns managed execution and evidence.
-
-Consolidated proof: [giodl73-repo/openclaw#100](https://github.com/giodl73-repo/openclaw/pull/100).
-
-### 4. Preserve workflow accounting across pauses
-
-Keep Lobster's existing `CostTracker` summary across approval and structured
-input pauses, expose the summary through embedded and CLI envelopes, and retain
-incurred accounting on cancellation. This adds no new store or pricing model.
-
-Consolidated proof: [giodl73-repo/lobster#1](https://github.com/giodl73-repo/lobster/pull/1).
-
-### 5. Report and constrain workflow spend
-
-Project completed managed-run usage into Lobster's native result convention so
-the workflow total includes actual OpenClaw child work. Preserve `_meta.cost`
-through the OpenClaw runner and demonstrate the existing workflow
-`cost_limit`, without attributing tokens to individual receipts.
-
-Consolidated proof: [giodl73-repo/openclaw#109](https://github.com/giodl73-repo/openclaw/pull/109).
+The proof succeeds only if full producer `data` exists in the receipt store,
+not in the trajectory reference, and failed or malformed tool results create no
+success evidence.
 
 ## Acceptance criteria
 
@@ -670,6 +717,10 @@ The first complete series is successful when:
 14. Skill metadata cannot set or widen that limit.
 15. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
+16. The reference support scenario can list, count, and show full receipts
+    across local agents and return their originating session correlation.
+17. Store health, unsupported schema, retention, and backup behavior are
+    documented before the SQLite profile is presented as production-ready.
 
 ## A natural stepping stone to workflows
 

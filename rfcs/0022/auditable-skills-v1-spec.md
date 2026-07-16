@@ -262,9 +262,9 @@ through the receipt store.
 ### Receipt store
 
 The harness records full receipts through a storage-neutral receipt-store
-boundary. The v1 boundary must support idempotent record, exact-filter list,
-and count operations. It must index exact receipt type and should index subject,
-agent, session key, run, invocation, and skill identity.
+boundary. The v1 boundary must support idempotent record, get by receipt ID,
+exact-filter list, and count operations. It must index exact receipt type and
+should index subject, agent, session key, run, invocation, and skill identity.
 
 An OpenClaw installation defaults to one shared local SQLite receipt database:
 
@@ -293,6 +293,30 @@ The receipt store has its own retention, backup, and access policy. Session or
 trajectory rotation must not delete its full receipts. Deleting a receipt may
 leave a historical trajectory reference unresolved; implementations must not
 reconstruct full evidence from model prose or other untrusted content.
+
+Recording uses a harness-owned source identity such as agent, session, run,
+tool call, and receipt position. Repeating the same source identity with the
+same normalized receipt must return the existing record. Reusing it with
+different content must fail as an idempotency conflict. A producer cannot
+choose this identity or overwrite an existing receipt.
+
+The store must bound record size, transaction and lock wait, and in-memory
+queueing. Receipt persistence must not add an unbounded wait to the Gateway's
+tool-result path. A store error remains observable but must not crash the
+Gateway or rewrite the completed tool result. The implementation must not
+silently fall back to a different per-agent or in-memory store.
+
+The SQLite profile must:
+
+- reject a database schema newer than the running implementation supports;
+- apply forward migrations atomically before accepting writes;
+- expose health diagnostics for path, permissions, lock timeout, corruption,
+  and unsupported schema without including receipt payloads;
+- use a consistent SQLite snapshot mechanism for backup and export rather than
+  copying a live database file;
+- keep database, journal, and temporary files private to the OpenClaw account.
+
+Disabling new receipt recording must not make existing records unreadable.
 
 ## Managed invocation contract
 
@@ -428,6 +452,41 @@ come from install provenance, not skill metadata.
 
 ## Query requirements
 
+The stable query contract has three operations:
+
+- `get(receiptId)` returns one full receipt or a typed not-found result;
+- `list(query)` returns a bounded, stably ordered page of full receipts;
+- `count(query)` returns the number of records matching the same filters
+  without materializing receipt payloads.
+
+```ts
+type ReceiptFilterV1 = {
+  type?: string;
+  subject?: { type: string; id?: string };
+  agentIds?: string[];
+  sessionKey?: string;
+  runId?: string;
+  invocationId?: string;
+  skill?: { name: string; digest?: string };
+  tool?: { name?: string; callId?: string };
+  occurredAfter?: number;
+  occurredBefore?: number;
+};
+
+type ReceiptQueryV1 = ReceiptFilterV1 & {
+  order?: "oldest" | "newest";
+  limit: number;
+  cursor?: string;
+};
+
+type ReceiptPageV1 = {
+  receipts: RecordedSkillReceiptV1[];
+  nextCursor?: string;
+};
+```
+
+`count` accepts `ReceiptFilterV1`; pagination fields do not affect the count.
+
 An implementation conforming as an audit provider must support exact filtering
 of observed receipts by `type`. It should additionally support filtering by:
 
@@ -442,9 +501,23 @@ The query surface must return the originating run and session correlation so an
 operator or later agent can revisit the work thread. It must distinguish
 declared outcomes from observed receipts.
 
-Audit providers should support counting or grouping observed receipts by exact
-type and time window. They may expose CLI, API, UI, or export surfaces over the
-same record contract.
+`list` must impose a maximum limit and deterministic ordering with `receiptId`
+or store sequence as the final tie-breaker. Cursors are opaque and scoped to
+the normalized filter and ordering; a cursor must not be accepted with a
+different query. Invalid cursors fail explicitly rather than restarting at the
+first page. An empty `agentIds` list matches no agents.
+
+Audit providers should support grouping observed receipts by exact type and
+time window as a reporting projection. CLI, Gateway, plugin, UI, workflow, and
+export surfaces must reuse the same query boundary rather than opening SQLite
+or scanning trajectory files directly.
+
+Every public query surface must apply its existing caller, agent, session, and
+plugin authorization before calling the store. Supplying `agentIds` is a
+filter, not an authority grant. `get`, `list`, and `count` must use the same
+visibility rules so counts cannot reveal records whose full receipts the caller
+could not read. A workflow adapter receives receipts only for the managed run
+it is resolving.
 
 ## Retention, sanitization, and export
 
@@ -459,6 +532,13 @@ retained receipt remains searchable after session telemetry rotates, although
 the transcript needed to reconstruct conversational context may no longer be
 available. An external system remains authoritative for business objects it
 owns.
+
+Retention cleanup must be bounded and observable. It must delete canonical
+receipt records without rewriting trajectories; an old trajectory reference
+may therefore resolve as not found. Export must preserve receipt schema
+version, receipt ID, exact type, occurrence time, and harness correlation.
+Exports containing producer `data` require the same or stronger authorization
+and redaction policy as direct `get` and `list` operations.
 
 The v1 envelope provides correlation, not tamper evidence. Products that claim
 regulatory attestation or modification detection need a separately specified
@@ -516,6 +596,17 @@ A conforming implementation should prove at least:
 13. Oversized receipt data is omitted without changing the successful tool
     result.
 14. Competing completion and cancellation callbacks settle one terminal state.
+15. Two local agents write to one configured store and an all-agent exact-type
+    count returns both records.
+16. A trajectory reference contains the receipt ID and correlation but no
+    producer `data`; `get` resolves the full data from the receipt store.
+17. Repeating one harness source identity with equal content is idempotent;
+    different content produces a conflict.
+18. Session or trajectory rotation does not delete the canonical receipt.
+19. A database with a newer unsupported schema is rejected with an actionable
+    health diagnostic and no fallback store is created.
+20. List pagination is stable when multiple receipts share an occurrence time,
+    and count does not materialize producer data.
 
 ## Example: support work thread
 

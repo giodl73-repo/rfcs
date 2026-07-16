@@ -276,6 +276,15 @@ substitute declared `outcomes`. Usage and cost are omitted when unavailable.
 Every returned receipt must correlate to the result's run. When direct
 invocation correlation is present, it must match the result's invocation.
 
+A trajectory `audit.receipt.recorded` reference is correlation, not the full
+managed-step receipt. OpenClaw resolves it through the configured receipt-store
+boundary before constructing this result. If a referenced record is no longer
+available, the result must not reconstruct it from trajectory data, transcript
+text, or model output. A required gate fails with `receipt_unavailable`; a run
+with no matching reference or record fails with `required_receipt_missing`.
+This distinction lets operators separate retention or store failure from a
+business outcome that was never observed.
+
 `exclusive` permits per-step usage and cost attribution. For `shared`, the
 runner may include observed run totals but must label them shared, deduplicate
 the run across the workflow, and must not present those totals as the exclusive
@@ -362,7 +371,8 @@ The recommended first core implementation is deliberately small:
 - runs one ready managed skill at a time;
 - uses an isolated managed run when reporting exclusive per-step accounting;
 - waits for the managed run to settle;
-- gates completion on exact observed receipt types when configured;
+- resolves full receipts through the configured receipt-store boundary and
+  gates completion on exact observed receipt types when configured;
 - stops on failure or cancellation;
 - aggregates observed usage and cost once per run;
 - records workflow and step status through existing TaskFlow/runtime state;
@@ -426,7 +436,8 @@ accounting normalization into OpenClaw-owned interfaces. Preserve current
 Lobster behavior behind an adapter.
 
 Exit criterion: the existing RFC 0022 support workflow passes through the
-adapter without changing its receipts, lineage, or totals.
+adapter without changing its receipts, lineage, or totals. No adapter opens
+SQLite directly.
 
 ### Phase 2: add the core sequential runner
 
@@ -488,6 +499,8 @@ A conforming runner must prove:
 15. A limit failure preserves receipts and spend from work that already
     occurred.
 16. Shared run usage is counted once and never reported as exclusive step cost.
+17. A required receipt reference that cannot be resolved fails as
+    `receipt_unavailable` and is not reconstructed from trajectory or prose.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one
