@@ -437,6 +437,40 @@ Likewise, a mutable session cost estimate is not exact historical run cost. An
 implementation may expose token usage before cost, but it must omit exact-run
 cost until the amount and basis can be captured with that run.
 
+### Managed-run usage check
+
+A harness may expose a read-only check over an explicit set of retained managed
+run IDs:
+
+```ts
+type ManagedRunUsageCheckV1 = {
+  runIds: string[];
+  usage: NormalizedRunUsageV1 & { total: number };
+  budget?: {
+    maxTokens: number;
+    remainingTokens: number;
+    decision: "within_limit" | "limit_reached";
+  };
+};
+```
+
+The check must:
+
+1. apply the harness's existing run-visibility boundary;
+2. accept only terminal runs with managed skill identity;
+3. deduplicate by exact `runId` before aggregation;
+4. prefer the retained provider total and otherwise use retained input plus
+   output, leaving cache buckets separate;
+5. return `accounting_unavailable` with the affected run ID when required usage
+   cannot be established;
+6. treat `maxTokens` as caller-owned input for this decision, not durable skill
+   metadata or a new budget ledger; and
+7. report `limit_reached` when observed total is equal to or greater than the
+   ceiling.
+
+This check occurs between completed runs. It cannot reserve future tokens or
+guarantee that one active run will not exceed the ceiling.
+
 ## Audit run projection
 
 An audit consumer should be able to obtain one versioned run projection that
@@ -649,6 +683,8 @@ A conforming implementation should prove at least:
     and count does not materialize producer data.
 21. An expired run-to-skill association is reported as unavailable and is not
     reconstructed from transcript or receipt data.
+22. An explicit managed-run usage check deduplicates run IDs and reports a
+    caller-owned token-limit decision without reading context-window totals.
 
 ## Example: support work thread
 

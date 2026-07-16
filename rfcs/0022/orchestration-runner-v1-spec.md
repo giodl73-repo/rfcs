@@ -348,6 +348,12 @@ step, the runner must stop before dispatching another step and report
 `accounting_unavailable`. It must not treat unknown usage or cost as zero or
 claim the workflow remained within the limit.
 
+A core runner may reuse a harness-provided managed-run usage check for this
+between-step token decision. The runner remains responsible for selecting the
+contributing run IDs and, when it advertises durable resume, persisting which
+runs have already been accepted. The check does not replace runner state or
+make an ephemeral caller ceiling durable.
+
 A runner that cannot persist accounting across a pause must reject workflows
 requiring durable resume before dispatch.
 
@@ -525,6 +531,8 @@ A conforming runner must prove:
 18. An unavailable native run-to-skill association fails as
     `managed_identity_unavailable` and is not inferred from task or receipt
     content.
+19. A runner using a native usage check supplies explicit accepted run IDs and
+    does not treat the check as durable workflow state.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one

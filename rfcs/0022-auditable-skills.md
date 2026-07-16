@@ -477,10 +477,12 @@ the run; a mutable session estimate is not a durable cost receipt.
 OpenClaw does not introduce a second workflow budget ledger. A completed
 managed skill run projects its observed usage, cost, and unambiguous model
 identity into a normalized step result. The selected runner owns workflow
-aggregation and limit enforcement. The current proof maps that result into
-Lobster's native command-result shape, where `CostTracker` owns aggregation and
-`cost_limit` owns enforcement. A conforming core runner can consume the same
-result without Lobster.
+aggregation and limit enforcement. A native usage check may aggregate an
+explicit set of completed managed `runId` values and apply a caller-owned token
+ceiling between steps; it is a decision primitive, not a stored budget. The
+Lobster proof maps the same run result into its native command-result shape,
+where `CostTracker` owns durable aggregation and `cost_limit` owns enforcement.
+A conforming core runner can consume either boundary without Lobster.
 
 Accounting follows the workflow lifecycle:
 
@@ -676,7 +678,7 @@ OpenClaw-specific orchestration names in portable `SKILL.md` files.
 
 ## Implementation plan
 
-The fork series deliberately proved assumptions one step at a time. Four
+The fork series deliberately proved assumptions one step at a time. Five
 OpenClaw slices have now been rebuilt as compact, independently reviewable
 evidence. The earlier Lobster workflow experiments remain archived evidence,
 not a required landing stack:
@@ -687,6 +689,7 @@ not a required landing stack:
 | [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, exact skill digest, and native managed child-run identity. |
 | [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | One runner-neutral result joining exact native status and durable receipts. |
 | [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Cumulative retry-aware usage retained on the exact native run and exposed by the managed result. |
+| [OpenClaw #113](https://github.com/giodl73-repo/openclaw/pull/113) | Explicit managed run IDs deduplicated into one usage total with an optional caller-owned between-step token ceiling. |
 | [Lobster #1](https://github.com/giodl73-repo/lobster/pull/1) | Accounting continuity across pause and resume. |
 
 Upstream work should proceed in rounds so maintainers can accept the core
@@ -706,10 +709,15 @@ boundary without first accepting a workflow engine:
    completion lifecycle, retain it with the exact run, and expose it as an
    optional result field. Capture cost and basis with the run before presenting
    exact historical USD or enforcing USD limits.
-4. **Runner adapters and budgets.** Expose the normalized managed-step
-   result to a minimal core runner and optional Lobster adapter. Combine the
-   workflow composition and spend projection learned in the prototypes; keep
-   Lobster's pause/resume accounting change in its owning repository.
+4. **Between-step token budgets.** Aggregate explicit completed managed run IDs
+   once, reuse the native session-tree visibility boundary, and optionally
+   compare the exact total with a caller-owned ceiling. Missing accounting must
+   stop the decision rather than becoming zero. Do not store budgets or claim
+   preflight reservation.
+5. **Runner adapters and workflows.** Expose the normalized managed-step result
+   to a minimal core runner and optional Lobster adapter. Combine the workflow
+   composition and spend projection learned in the prototypes; keep Lobster's
+   pause/resume accounting change in its owning repository.
 
 Each round should be reviewable and useful on its own. The current workflow
 proof uses Lobster because it already provides the needed advanced lifecycle;
@@ -770,6 +778,8 @@ The first complete series is successful when:
     documented before the SQLite profile is presented as production-ready.
 18. If managed-run identity expires before a retained receipt, readers report
     identity as unavailable rather than reconstructing it from prose.
+19. A caller can name completed managed run IDs, count each once, and receive a
+    token-limit decision without creating another budget or usage ledger.
 
 ## A natural stepping stone to workflows
 
@@ -784,14 +794,13 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - normalized usage and workflow limits provide spend controls.
 
 OpenClaw does not need a second invocation lifecycle, workflow receipt, usage,
-or session store. The
-configured receipt store remains the one canonical source of full outcome
-evidence. TaskFlow already owns durable flow identity and linked child tasks. A
+or session store. The configured receipt store remains the one canonical source
+of full outcome evidence. TaskFlow already owns durable flow identity and linked child tasks. A
 minimal core runner can cover static sequential dependencies, failure,
-cancellation, and totals.
-Lobster can remain the advanced runner for typed pipelines, conditions, retries,
-branching, approvals, and resume. Both consume the same managed-skill result and
-reuse the same session, evidence, usage, cost, limit, and outcome primitives.
+cancellation, and totals. Lobster can remain the advanced runner for typed
+pipelines, conditions, retries, branching, approvals, and resume. Both consume
+the same managed-skill result and reuse the same session, evidence, usage, cost,
+limit, and outcome primitives.
 
 Fan-out, joins, model selection, reservations, and computed gates can evolve in
 those existing layers. They remain runtime capabilities, not portable
@@ -800,6 +809,7 @@ those existing layers. They remain runtime capabilities, not portable
 ## Prior art and dependencies
 
 - [Agent Skills specification](https://agentskills.io/specification)
+- [OpenTelemetry GenAI token usage conventions](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/gen-ai-metrics.md)
 - [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27)
 - [Auditable Skills v1 core specification](0022/auditable-skills-v1-spec.md)
 - [Orchestration runner v1 addendum](0022/orchestration-runner-v1-spec.md)
