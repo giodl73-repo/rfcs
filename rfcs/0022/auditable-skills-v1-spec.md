@@ -29,6 +29,7 @@ This core specification does not define:
 - model, tool, credential, or child-skill grants;
 - CRM accounts, cases, queues, SLAs, or assignment;
 - provider pricing catalogs or retention policy;
+- tamper-evident logs, signatures, regulatory attestations, or non-repudiation;
 - authoritative budgets inside skill metadata.
 
 Workflow-runner integration is defined separately in
@@ -62,8 +63,10 @@ Version 1 uses these compatibility rules:
 - Implementations may ignore all three metadata keys.
 - Unknown metadata keys must not prevent ordinary skill discovery or
   instruction loading.
-- Unknown values may produce a managed-invocation diagnostic, but must not
-  break ordinary instruction loading.
+- Unknown or malformed values must not break ordinary instruction loading. A
+  managed invocation that relies on a malformed recognized field must reject
+  that invocation with a clear diagnostic rather than silently weakening the
+  requested behavior.
 - Receipt producers may add optional fields within `data` without changing the
   core version.
 - A breaking change to a core record requires a new `schemaVersion`.
@@ -103,6 +106,9 @@ removing exact duplicates for policy and reporting.
 Outcome identifiers and skill names must not contain whitespace. Outcome
 identifiers should be stable, producer-owned dotted names such as
 `payment.authorized`, not generic state words such as `done`.
+
+Implementations must bound metadata value length and parsed list size before
+using these fields for planning or policy.
 
 ### Isolation values
 
@@ -182,6 +188,10 @@ The harness must admit a receipt only when:
 - the receipt passes structural validation and configured size limits;
 - sanitization and redaction complete before durable recording.
 
+Validation, sanitization, and recording must be bounded and must not perform
+request-time network I/O. A recorder or sanitizer failure must be contained so
+it cannot crash the Gateway or change the tool result.
+
 Failed tools must not emit success receipts. Model prose, skill declarations,
 and assistant claims must not be converted into receipts without an explicit
 trusted producer boundary.
@@ -196,22 +206,29 @@ correlation before durable recording.
 
 ```ts
 type RecordedSkillReceiptV1 = {
+  traceSchema: "openclaw-trajectory";
   schemaVersion: 1;
-  recordId: string;
-  recordedAt: string;
-  sessionKey: string;
+  traceId: string;
+  seq: number;
+  type: "audit.receipt";
+  ts: string;
+  sessionId: string;
+  sessionKey?: string;
   runId: string;
-  invocationId?: string;
-  toolName: string;
-  toolCallId: string;
-  receipt: SkillReceiptV1;
+  data: SkillReceiptV1 & {
+    invocationId?: string;
+    toolName: string;
+    toolCallId: string;
+  };
 };
 ```
 
-`recordId` is unique and stable for the recorded fact. `recordedAt` is an RFC
-3339 timestamp assigned by the harness. Tool, tool-call, session, run, and
-invocation fields are harness facts and must not be accepted from the receipt
-producer as authoritative correlation.
+The pair `traceId` and `seq` identifies the existing trajectory event. `ts` is
+its RFC 3339 timestamp. `sessionId` identifies the transcript instance;
+`sessionKey`, when present, identifies the stable logical route or thread. The
+receipt producer supplies only the `SkillReceiptV1` fields. Tool, tool-call,
+session, run, and optional invocation correlation are harness facts and must
+not be accepted from the producer as authoritative correlation.
 
 The envelope may live in an existing trajectory record. Implementations need
 not copy it into a separate receipt database.
@@ -233,9 +250,10 @@ type SkillInvocationV1 = {
   schemaVersion: 1;
   invocationId: string;
   parentInvocationId?: string;
-  runId: string;
+  runId?: string;
   parentRunId?: string;
-  sessionKey: string;
+  sessionId: string;
+  sessionKey?: string;
   skill: ExecutedSkillIdentityV1;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   startedAt?: string;
@@ -256,6 +274,17 @@ Retries that consume model usage must remain observable as attempts within the
 owning run or as separately identified runs. A retry must not erase incurred
 usage.
 
+`runId` is absent when invocation is rejected before dispatch. It is required
+once a run starts. `startedAt` is required for `running` and later states;
+`completedAt` is required for terminal states. A `failed` invocation requires a
+stable error code and sanitized message. Terminal state is chosen by one atomic
+settlement; a late completion or cancellation callback must not rewrite it.
+
+Existing trajectory invocation events normalize as follows: a started event is
+`running`; completion status `success` is `completed`, `error` is `failed`, and
+`interrupted` is `cancelled`. Implementations may retain the source status in a
+diagnostic field, but audit consumers use the normalized lifecycle above.
+
 Managed invocation reuses ordinary OpenClaw session, policy, sandbox, tool,
 credential, and model boundaries. The managed path must not create broader
 authority than an equivalent direct run.
@@ -266,11 +295,12 @@ Usage belongs to the run that consumed it.
 
 ```ts
 type NormalizedRunUsageV1 = {
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  totalTokens?: number;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoningTokens?: number;
+  total?: number;
 };
 
 type RunCostV1 = {
@@ -283,7 +313,7 @@ Token values must be finite, non-negative integers. Cost must be a finite,
 non-negative number. Missing usage or pricing must be omitted, never invented
 as zero.
 
-The provider aggregate is preferred when present. Otherwise `totalTokens` is
+The provider aggregate is preferred when present. Otherwise `total` is
 the sum of available normalized billable buckets according to OpenClaw's
 provider normalization rules. Failed, retried, and timed-out attempts are
 included whenever the provider reported usage.
@@ -299,9 +329,18 @@ joins invocation identity, observed receipts, model identity, usage, and cost.
 ```ts
 type AuditableSkillRunV1 = {
   schemaVersion: 1;
-  invocation: SkillInvocationV1;
-  provider?: string;
-  model?: string;
+  sessionId: string;
+  sessionKey?: string;
+  runId: string;
+  firstEventAt: string;
+  lastEventAt: string;
+  status?: "completed" | "failed" | "cancelled";
+  invocations: SkillInvocationV1[];
+  models: Array<{
+    provider?: string;
+    modelId?: string;
+  }>;
+  accountingScope: "exclusive" | "shared";
   usage?: NormalizedRunUsageV1;
   cost?: RunCostV1;
   receipts: RecordedSkillReceiptV1[];
@@ -310,6 +349,16 @@ type AuditableSkillRunV1 = {
 
 Storage may remain in existing trajectory, session, and usage records. This
 projection does not require a second ledger.
+
+`firstEventAt` and `lastEventAt` bound the observed run history. `status` is
+present only when a terminal run status is known and uses the same normalized
+lifecycle vocabulary as managed invocations.
+
+`exclusive` means one isolated managed invocation owns the run's usage and
+cost. `shared` means multiple skills or invocations may have contributed. Audit
+consumers must not divide shared usage among those skills or present it as
+exclusive step cost. Multiple model entries preserve provider fallback and
+multi-model execution rather than selecting one arbitrary identity.
 
 When RFC 0016 Claw provenance is available, the projection should also include
 the authoritative Claw id, version when known, and digest. That extension must
@@ -345,6 +394,10 @@ Retention, backup, and export policy are deployment concerns. An implementation
 must not claim durable revisitability beyond its configured retention window.
 Deletion of a transcript or trajectory record may make its receipt unavailable;
 an external system remains authoritative for business objects it owns.
+
+The v1 envelope provides correlation, not tamper evidence. Products that claim
+regulatory attestation or modification detection need a separately specified
+integrity, signing, and verification layer.
 
 ## Conformance
 
@@ -392,6 +445,12 @@ A conforming implementation should prove at least:
 8. Parent and child invocation lineage survives completion and cleanup.
 9. Reported provider usage includes incurred failed or retried attempts.
 10. Missing usage and unavailable cost remain absent rather than becoming zero.
+11. A malformed recognized metadata field rejects managed invocation without
+    breaking ordinary skill loading.
+12. A pre-dispatch rejection has no `runId`, while a started run does.
+13. Oversized receipt data is omitted without changing the successful tool
+    result.
+14. Competing completion and cancellation callbacks settle one terminal state.
 
 ## Example: support work thread
 

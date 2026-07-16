@@ -60,17 +60,21 @@ manufacture successful outcomes or usage.
 A runner exposes a stable id and explicit capabilities.
 
 ```ts
-type SkillRunnerCapabilitiesV1 = {
+type RunnerCapabilityV1 =
+  | "sequential"
+  | "dependencies"
+  | "conditions"
+  | "retries"
+  | "approvals"
+  | "durable-resume"
+  | "structured-input"
+  | "parallel"
+  | "loops";
+
+type SkillRunnerDescriptorV1 = {
   runnerId: string;
-  sequential: true;
-  dependencies: boolean;
-  conditions: boolean;
-  retries: boolean;
-  approvals: boolean;
-  durableResume: boolean;
-  structuredInput: boolean;
-  parallel: boolean;
-  loops: boolean;
+  runnerVersion?: string;
+  capabilities: RunnerCapabilityV1[];
 };
 ```
 
@@ -114,8 +118,8 @@ step at a time. It must not infer conditions or data mappings from prose.
 `input` is explicit caller-selected structured input. Implementations must
 apply existing secret, size, and policy handling. `requiredReceiptTypes` is an
 optional completion gate: a completed managed run satisfies it only when its
-recorded receipts contain every exact type. A declaration in `SKILL.md` does
-not satisfy this gate.
+recorded receipts contain every exact `data.type`. A declaration in `SKILL.md`
+does not satisfy this gate.
 
 Example:
 
@@ -126,6 +130,7 @@ revision: "1"
 steps:
   - id: verify
     skill: verify-customer
+    requiredReceiptTypes: [customer.verified]
   - id: resolve
     skill: resolve-case
     needs: [verify]
@@ -141,11 +146,15 @@ not a file extension or authoring syntax.
 `planId` identifies the logical workflow definition. The runtime assigns a
 unique `workflowId` to each execution. Before dispatch, it validates the plan,
 computes or records an immutable plan revision or digest, and binds that value
-to the execution. Resume must use the same validated plan revision.
+and the originating caller and session to the execution. Resume must use the
+same validated plan revision and workflow binding.
 
 Implementations must bound step count, dependency count, input size, receipt
 gate count, string length, and graph-validation work. Plan validation must not
 perform blocking network I/O on the Gateway event loop.
+
+Every configured limit must be a finite, non-negative number. Invalid limits
+make the plan invalid; they must not be ignored or coerced.
 
 ## Workflow and step lifecycle
 
@@ -189,6 +198,15 @@ condition, or resume semantics. The core profile need not produce them in v1.
 Terminal workflow and step states must settle once. Repeated cancel, resume, or
 completion delivery must be idempotent.
 
+`completed`, `failed`, `cancelled`, and `skipped` are terminal. The first
+successful atomic terminal transition wins. A cancellation request is not proof
+that the active operation stopped; if completion settles first, the recorded
+state remains `completed` and its receipts and spend remain valid.
+
+Workflow and step status describe orchestration, not transaction rollback. A
+failed or cancelled workflow does not negate receipts or external effects that
+already occurred.
+
 ## Managed step request
 
 For each ready skill step, the runner asks OpenClaw to invoke one managed skill.
@@ -200,7 +218,6 @@ type ManagedSkillStepRequestV1 = {
   stepId: string;
   attempt: number;
   skill: string;
-  parentSessionKey: string;
   input?: Record<string, unknown>;
   requiredReceiptTypes?: string[];
 };
@@ -210,9 +227,22 @@ OpenClaw resolves the exact skill artifact, effective child policy, isolation,
 model, tools, credentials, and sandbox at dispatch time. A runner may request a
 skill by name but must not bypass those checks.
 
+OpenClaw derives the parent session from the workflow binding; the runner does
+not supply or redirect it. The requested step, skill, and receipt gates must
+match the validated plan and current workflow state. In the core profile, input
+must match the validated static plan. An advanced adapter may resolve input only
+through mappings authorized by its validated definition and caller policy.
+
 `attempt` starts at 1 and increases for runner-requested retries. The tuple
 `workflowId`, `stepId`, and `attempt` is an idempotency key for dispatch. A
 runner retry must not silently reuse an earlier failed attempt's invocation id.
+
+Repeating the same key and semantically identical request must return the same
+invocation or settled result without dispatching again. Repeating the key with
+different skill, input, or receipt gates must fail as an idempotency conflict
+before dispatch. OpenClaw should store a deterministic digest of the normalized
+request under the idempotency key; the runner must not provide that digest as a
+trusted fact.
 
 ## Managed step result
 
@@ -228,29 +258,11 @@ type ManagedSkillStepResultV1 = {
   invocationId: string;
   runId: string;
   status: "completed" | "failed" | "cancelled";
-  skill: {
-    name: string;
-    source: string;
-    version?: string;
-    digest: string;
-  };
-  receipts: Array<{
-    type: string;
-    version?: number;
-    subject?: { type: string; id: string };
-    data?: Record<string, unknown>;
-  }>;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-    totalTokens?: number;
-  };
-  cost?: {
-    usd: number;
-    basis: "provider-billed" | "catalog-estimate" | "mixed";
-  };
+  accountingScope: "exclusive" | "shared";
+  skill: ExecutedSkillIdentityV1;
+  receipts: RecordedSkillReceiptV1[];
+  usage?: NormalizedRunUsageV1;
+  cost?: RunCostV1;
   error?: {
     code: string;
     message: string;
@@ -258,8 +270,19 @@ type ManagedSkillStepResultV1 = {
 };
 ```
 
-The result must contain observed receipts only. It must not substitute declared
-`outcomes`. Usage and cost are omitted when unavailable.
+The referenced types come from the Auditable Skills v1 core specification. The
+result must contain observed recorded-receipt envelopes only. It must not
+substitute declared `outcomes`. Usage and cost are omitted when unavailable.
+Every returned receipt must correlate to the result's run. When direct
+invocation correlation is present, it must match the result's invocation.
+
+`exclusive` permits per-step usage and cost attribution. For `shared`, the
+runner may include observed run totals but must label them shared, deduplicate
+the run across the workflow, and must not present those totals as the exclusive
+cost of this step.
+
+`error` is required for `failed`, optional for `cancelled`, and omitted for
+`completed`.
 
 Error `code` is a stable machine-readable value. Error `message` is sanitized
 for the runner's trust boundary. Raw local paths, credentials, provider payloads,
@@ -280,6 +303,20 @@ limit decisions through the following invariants:
 7. Mixed cost basis is reported when an aggregate combines billed and estimated
    costs.
 8. Limits come from the caller or Claw policy, never skill metadata.
+9. Shared run usage is never divided or relabelled as exclusive step usage.
+
+Before dispatching a step, the runner must compare every available accumulated
+metric with its configured limit. Reaching a limit prevents another dispatch.
+A single active step may exceed a limit because provider usage is normally
+known only after work occurs; v1 does not claim reservation or exact preflight
+enforcement. If the final step exceeds a limit, the workflow fails with a
+structured limit error, but its observed receipts and incurred spend remain
+valid.
+
+When a configured hard limit depends on a metric that is unavailable after a
+step, the runner must stop before dispatching another step and report
+`accounting_unavailable`. It must not treat unknown usage or cost as zero or
+claim the workflow remained within the limit.
 
 A runner that cannot persist accounting across a pause must reject workflows
 requiring durable resume before dispatch.
@@ -298,11 +335,20 @@ to recover:
 - accepted result run ids;
 - accumulated usage, cost, and basis;
 - pending approval or structured-input request;
-- a single-use or revision-bound resume token.
+- a single-use, revision-bound resume token or equivalent atomic compare-and-set
+  state.
+
+Checkpoints must use existing secret references and sanitization rules. They
+must not persist resolved credentials or unredacted provider payloads merely to
+support resume.
 
 Resume must validate workflow identity and revision before dispatch. Expired,
 replayed, deleted, or revision-mismatched resume state must fail without
 starting another skill.
+
+Cancelling a waiting workflow must invalidate its pending resume authority and
+approval or input request. A late response must not restart the workflow or be
+recorded as a current operator decision.
 
 OpenClaw core owns managed-run facts referenced by the checkpoint. The runner
 owns the checkpoint and decision to continue.
@@ -313,6 +359,7 @@ The recommended first core implementation is deliberately small:
 
 - validates a static acyclic plan;
 - runs one ready managed skill at a time;
+- uses an isolated managed run when reporting exclusive per-step accounting;
 - waits for the managed run to settle;
 - gates completion on exact observed receipt types when configured;
 - stops on failure or cancellation;
@@ -349,8 +396,8 @@ The caller selects a runner explicitly or accepts a configured default.
 
 ```ts
 type SkillWorkflowRunnerSelectionV1 = {
-  runner?: "core" | string;
-  require?: Array<keyof Omit<SkillRunnerCapabilitiesV1, "runnerId">>;
+  runner?: string;
+  require?: RunnerCapabilityV1[];
 };
 ```
 
@@ -360,6 +407,11 @@ dispatch when the chosen runner is unavailable or lacks a required capability.
 
 Audit output records the selected runner id and version when available. The
 runner id is execution provenance, not part of `SKILL.md`.
+
+Runner selection changes orchestration behavior, not execution authority. A
+runner must pass every managed step through the same OpenClaw policy boundary;
+selecting a different runner cannot grant a skill, model, tool, credential, or
+sandbox capability.
 
 ## Migration plan
 
@@ -423,9 +475,18 @@ A conforming runner must prove:
 6. It retains incurred spend from failed and retried attempts.
 7. Cancellation prevents new dispatch and reports incurred spend.
 8. Repeated terminal delivery is idempotent.
-9. Requested unsupported capabilities fail before dispatch.
-10. Resume, when advertised, survives a process boundary without duplicate
+9. Conflicting reuse of a dispatch idempotency key fails before dispatch.
+10. Requested unsupported capabilities fail before dispatch.
+11. A configured limit with missing accounting stops before another dispatch.
+12. Resume, when advertised, survives a process boundary without duplicate
     dispatch or accounting.
+13. A runner cannot redirect a step to a different parent session or change the
+    validated skill or receipt gate.
+14. Cancellation while waiting invalidates resume authority and ignores a late
+    approval or input response.
+15. A limit failure preserves receipts and spend from work that already
+    occurred.
+16. Shared run usage is counted once and never reported as exclusive step cost.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one
