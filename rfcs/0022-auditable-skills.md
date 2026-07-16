@@ -714,10 +714,17 @@ boundary without first accepting a workflow engine:
    compare the exact total with a caller-owned ceiling. Missing accounting must
    stop the decision rather than becoming zero. Do not store budgets or claim
    preflight reservation.
-5. **Runner adapters and workflows.** Expose the normalized managed-step result
-   to a minimal core runner and optional Lobster adapter. Combine the workflow
-   composition and spend projection learned in the prototypes; keep Lobster's
-   pause/resume accounting change in its owning repository.
+5. **Agent-driven sequence proof.** Let a parent agent invoke one managed skill
+   at a time with `sessions_spawn`, inspect its native result and required
+   receipt types, then check exact accumulated usage before continuing. The
+   parent may choose an allowed model per direct step. This proves useful
+   composition with existing primitives, but makes no durable workflow or
+   automatic restart claim.
+6. **Managed dispatch seam and runners.** Add a non-model, host-owned managed
+   skill dispatch boundary that reuses the exact `sessions_spawn` admission
+   path and supports idempotent step attempts. Only then add a deterministic
+   TaskFlow controller and optional Lobster adapter. Keep Lobster's pause/resume
+   accounting change in its owning repository.
 
 Each round should be reviewable and useful on its own. The current workflow
 proof uses Lobster because it already provides the needed advanced lifecycle;
@@ -780,6 +787,11 @@ The first complete series is successful when:
     identity as unavailable rather than reconstructing it from prose.
 19. A caller can name completed managed run IDs, count each once, and receive a
     token-limit decision without creating another budget or usage ledger.
+20. A parent agent can sequence managed skills using native results, receipt
+    gates, per-step allowed models, and exact token decisions without a new
+    executor.
+21. A durable TaskFlow runner cannot land until non-model dispatch reuses the
+    same managed `sessions_spawn` admission path rather than duplicating it.
 
 ## A natural stepping stone to workflows
 
@@ -793,11 +805,20 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - observed receipts provide evidence for completion gates;
 - normalized usage and workflow limits provide spend controls.
 
+Before a deterministic runner exists, a parent OpenClaw agent can provide the
+smallest useful composition profile: invoke one managed skill, read its native
+result and receipts, check exact accumulated usage, and decide whether to
+invoke the next skill. That works with the existing invocation lifecycle and
+the primitives in this series. It does not claim a durable workflow identity,
+automatic replay, or restart-safe next-step dispatch.
+
 OpenClaw does not need a second invocation lifecycle, workflow receipt, usage,
 or session store. The configured receipt store remains the one canonical source
-of full outcome evidence. TaskFlow already owns durable flow identity and linked child tasks. A
-minimal core runner can cover static sequential dependencies, failure,
-cancellation, and totals. Lobster can remain the advanced runner for typed
+of full outcome evidence. TaskFlow already owns durable flow identity and linked
+child tasks. Once a trusted host dispatch seam can invoke managed skills through
+the existing admission path, a minimal core runner can cover static sequential
+dependencies, failure, cancellation, and totals. Lobster can remain the
+advanced runner for typed
 pipelines, conditions, retries, branching, approvals, and resume. Both consume
 the same managed-skill result and reuse the same session, evidence, usage, cost,
 limit, and outcome primitives.

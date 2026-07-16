@@ -58,6 +58,51 @@ manufacture successful outcomes or usage.
 - A workflow requiring an unavailable capability must fail validation before
   dispatch.
 
+## Agent-driven sequential profile
+
+The first core composition profile may use the parent OpenClaw agent itself as
+the runner. It requires no new workflow executor:
+
+1. the parent calls managed `sessions_spawn` for one ready skill;
+2. native completion identifies the exact child `runId`;
+3. the parent reads `subagents result` and evaluates required receipt types;
+4. the parent calls `subagents usage` with every accepted completed run ID and
+   the caller-owned token ceiling; and
+5. only `within_limit` permits dispatch of the next skill.
+
+The parent may select an allowed model for each direct managed spawn through
+the existing `sessions_spawn` model override. OpenClaw continues to own model
+authorization, skill resolution, isolation, child policy, receipts, and exact
+run accounting.
+
+This profile proves useful sequential composition, receipt gating, per-step
+model selection, and token limits. It is not a durable workflow claim. It has
+no separate workflow ID, automatic replay, or restart-safe next-step dispatch.
+After an interruption, completed native runs, receipts, and usage remain
+queryable, but a caller must decide whether to continue. Implementations must
+not present the parent agent's conversational intent as persisted TaskFlow
+state.
+
+## Durable core-runner prerequisite
+
+A deterministic TaskFlow-backed runner requires one additional host boundary:
+a non-model controller must be able to request a managed skill through the
+same admission path as `sessions_spawn`. That boundary must:
+
+- bind the parent session and effective skill snapshot in trusted host context;
+- apply the same skill visibility, policy, isolation, sandbox, model, tool, and
+  child-depth checks as direct managed spawn;
+- accept a host-derived idempotency key for workflow, step, and attempt;
+- return the native run ID, child session key, and managed invocation identity;
+  and
+- make repeated identical dispatch safe while rejecting conflicting reuse.
+
+A runner or plugin must not reproduce those checks independently. Until this
+host-managed dispatch seam exists, a TaskFlow record can retain orchestration
+state but cannot honestly execute managed skill steps after restart. An
+in-memory callback that advances on child completion is not the core runner
+profile.
+
 ## Runner capabilities
 
 A runner exposes a stable id and explicit capabilities.
@@ -533,6 +578,10 @@ A conforming runner must prove:
     content.
 19. A runner using a native usage check supplies explicit accepted run IDs and
     does not treat the check as durable workflow state.
+20. The agent-driven profile proves sequential dispatch and accounting without
+    claiming durable workflow identity or automatic restart recovery.
+21. A TaskFlow-backed runner dispatches through the host-managed skill boundary
+    and never duplicates `sessions_spawn` admission logic.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one
