@@ -322,7 +322,8 @@ A runner that cannot persist accounting across a pause must reject workflows
 requiring durable resume before dispatch.
 
 The core runner may keep its workflow state in OpenClaw's existing TaskFlow and
-runtime-state primitives. It must not create another model-usage or receipt
+runtime-state primitives. It resolves full receipts through the configured
+receipt-store boundary and must not create another model-usage or receipt
 ledger.
 
 ## Pause and resume
@@ -380,7 +381,7 @@ Lobster can implement the same boundary without changing its pipeline language.
 | Workflow id and status | Lobster run and persisted resume identity |
 | Managed step request | Embedded OpenClaw managed-skill action |
 | Managed step result | Structured command result and audit projection |
-| Observed receipts | Result data used by existing conditions |
+| Observed receipts | Full records resolved from the configured receipt store and exposed as result data used by existing conditions |
 | Run usage and cost | Native `CostTracker` contribution |
 | Workflow limit | Existing `cost_limit` |
 | Waiting and resume | Existing approval and structured-input state |

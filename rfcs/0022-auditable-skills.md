@@ -41,7 +41,8 @@ skills it may use, and whether its work needs an isolated run. A successful
 tool call may then emit typed evidence such as `inventory.sent`,
 `payment.authorized`, or `invoice.paid`. OpenClaw records the exact skill
 invocation, child-run lineage, model usage, USD cost when available, and
-evidence actually observed. When skills are composed into a workflow, a runner
+evidence actually observed in one configurable receipt store shared by the
+Gateway's agents. When skills are composed into a workflow, a runner
 aggregates that observed usage and applies caller-owned limits. The current
 proof uses Lobster; the contract also permits a minimal OpenClaw core runner or
 another conforming adapter.
@@ -113,6 +114,7 @@ facts. Neither substitutes for the other.
 ## Goals
 
 - Let successful tool results assert typed, filterable business receipts.
+- Record full receipts once in a configurable store shared across local agents.
 - Add a portable, optional `SKILL.md` declaration for managed orchestration.
 - Record exact skill identity, invocation lifecycle, and parent/child lineage.
 - Attribute tokens and USD cost honestly at the model-run boundary.
@@ -313,13 +315,22 @@ meaningful outside one tool, such as `payment.authorized` rather than
 `completed`. `version`, `subject`, and `data` belong to the producer's schema.
 OpenClaw does not interpret their business meaning.
 
-The harness records the receipt in an existing trajectory envelope and adds:
+The harness records the full receipt once in a configured shared receipt store
+and adds:
 
 - record timestamp and ID;
 - session and run identity;
 - tool name and tool-call ID;
 - skill invocation identity when present;
 - provider and model correlation from the run.
+
+The ordinary trajectory records only an `audit.receipt.recorded` reference
+containing the receipt ID and small correlation fields. It does not duplicate
+producer `data`. By default, OpenClaw uses one local
+`~/.openclaw/state/receipts.sqlite` across all agents on the Gateway. Operators
+can configure another local path—for example, a database dedicated to a team of
+agents—while keeping the producer and query contracts unchanged. SQLite is a
+single-host profile, not a network-filesystem or multi-host database.
 
 The receipt does not own token usage. Audit projections join it to run-level
 usage and spend through the invocation and run identity.
@@ -492,9 +503,11 @@ that declared `customer.notified` but recorded no matching evidence. Version 1
 does not automatically treat a missing declared outcome as a failed run; it
 makes the discrepancy visible to policy and reporting layers.
 
-The first implementation may project existing trajectory and session data.
-It does not require a separate business ledger. Public CLI, Gateway, and UI
-surfaces may evolve independently around the same record contracts.
+The first implementation projects existing trajectory and session facts while
+resolving full outcome evidence from the shared receipt store. This is one
+purpose-built business-evidence store, not a duplicate CRM or workflow ledger.
+Public CLI, Gateway, and UI surfaces may evolve independently around the same
+record contracts.
 
 ### From a run to a durable work history
 
@@ -589,10 +602,11 @@ criteria.
 
 ### 1. Record business work
 
-Carry typed receipts through successful tool results and make them searchable
-through existing session/run correlation plus exact outcome type. This proves
-that an operator can revisit the originating work thread, count outcomes by
-type, and inspect evidence such as a payment authorization code.
+Carry typed receipts through successful tool results, record them in a
+configurable shared SQLite store, and leave bounded references in existing
+session/run trajectories. This proves that an operator can search across
+agents, revisit the originating work thread, count outcomes by type, and
+inspect evidence such as a payment authorization code.
 
 Consolidated proof: [giodl73-repo/openclaw#97](https://github.com/giodl73-repo/openclaw/pull/97).
 
@@ -638,21 +652,23 @@ The first complete series is successful when:
 1. A successful tool can emit `payment.authorized` with an authorization code.
 2. Failed tools and malformed receipts produce no success evidence.
 3. Receipts are recorded, sanitized, retained, and filterable by type.
-4. A skill can declare outcomes, other skills it may use, and isolation intent
+4. Multiple local agents can share one configured receipt database, and
+   trajectory rotation does not duplicate or delete its full receipt payloads.
+5. A skill can declare outcomes, other skills it may use, and isolation intent
    in standard-compatible string metadata.
-5. Ordinary skills without the metadata remain backward compatible.
-6. One explicit invocation records exact skill identity and lifecycle.
-7. One declared isolated child skill runs through existing OpenClaw session
+6. Ordinary skills without the metadata remain backward compatible.
+7. One explicit invocation records exact skill identity and lifecycle.
+8. One declared isolated child skill runs through existing OpenClaw session
     and policy primitives with complete parent/child lineage.
-8. Each isolated run reports normalized tokens and captured cost with its basis
+9. Each isolated run reports normalized tokens and captured cost with its basis
     when available.
-9. Shared turns are labelled shared rather than divided among skills.
-10. A workflow total counts each contributing managed run once.
-11. Workflow accounting survives approval and structured-input pauses.
-12. A caller-provided workflow cost limit is enforced by the selected runner;
+10. Shared turns are labelled shared rather than divided among skills.
+11. A workflow total counts each contributing managed run once.
+12. Workflow accounting survives approval and structured-input pauses.
+13. A caller-provided workflow cost limit is enforced by the selected runner;
     the current Lobster proof uses its existing `cost_limit`.
-13. Skill metadata cannot set or widen that limit.
-14. When a Claw is present, reports include authoritative Claw and skill package
+14. Skill metadata cannot set or widen that limit.
+15. When a Claw is present, reports include authoritative Claw and skill package
     revision identity from Claw provenance.
 
 ## A natural stepping stone to workflows
@@ -667,9 +683,11 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - observed receipts provide evidence for completion gates;
 - normalized usage and workflow limits provide spend controls.
 
-OpenClaw does not need a second receipt, usage, or session store. TaskFlow
-already owns durable flow identity and linked child tasks. A minimal core runner
-can cover static sequential dependencies, failure, cancellation, and totals.
+OpenClaw does not need a second workflow receipt, usage, or session store. The
+configured receipt store remains the one canonical source of full outcome
+evidence. TaskFlow already owns durable flow identity and linked child tasks. A
+minimal core runner can cover static sequential dependencies, failure,
+cancellation, and totals.
 Lobster can remain the advanced runner for typed pipelines, conditions, retries,
 branching, approvals, and resume. Both consume the same managed-skill result and
 reuse the same session, evidence, usage, cost, limit, and outcome primitives.

@@ -15,6 +15,7 @@ This core specification defines:
 - optional `SKILL.md` metadata for declared outcomes, child skills, and
   isolation intent;
 - typed receipts emitted by successful tools;
+- a configurable receipt-store boundary and a shared local SQLite profile;
 - managed skill invocation and exact executed-skill identity;
 - parent, child, session, and run correlation;
 - normalized run usage and captured cost;
@@ -206,32 +207,92 @@ correlation before durable recording.
 
 ```ts
 type RecordedSkillReceiptV1 = {
-  traceSchema: "openclaw-trajectory";
+  receiptSchema: "openclaw-audit-receipt";
   schemaVersion: 1;
-  traceId: string;
-  seq: number;
-  type: "audit.receipt";
-  ts: string;
+  receiptId: string;
+  sequence: number;
+  type: string;
+  version?: number;
+  occurredAt: number;
+  agentId: string;
   sessionId: string;
   sessionKey?: string;
   runId: string;
-  data: SkillReceiptV1 & {
+  invocationId?: string;
+  skillName?: string;
+  skillDigest?: string;
+  toolName: string;
+  toolCallId: string;
+  subject?: { type: string; id: string };
+  data?: Record<string, unknown>;
+};
+```
+
+`occurredAt` is Unix time in milliseconds. `sessionId` identifies the
+transcript instance; `sessionKey`, when present, identifies the stable logical
+route or thread. The receipt producer supplies only the `SkillReceiptV1`
+fields. Receipt ID, sequence, time, agent, tool, tool-call, session, run, and
+optional invocation and skill correlation are harness facts and must not be
+accepted from the producer as authoritative correlation.
+
+The recorded receipt is the canonical full business-evidence record. A normal
+trajectory contains only this bounded reference:
+
+```ts
+type TrajectoryReceiptReferenceV1 = {
+  type: "audit.receipt.recorded";
+  data: {
+    receiptId: string;
+    type: string;
+    version?: number;
+    subject?: { type: string; id: string };
     invocationId?: string;
+    skillName?: string;
+    skillDigest?: string;
     toolName: string;
     toolCallId: string;
   };
 };
 ```
 
-The pair `traceId` and `seq` identifies the existing trajectory event. `ts` is
-its RFC 3339 timestamp. `sessionId` identifies the transcript instance;
-`sessionKey`, when present, identifies the stable logical route or thread. The
-receipt producer supplies only the `SkillReceiptV1` fields. Tool, tool-call,
-session, run, and optional invocation correlation are harness facts and must
-not be accepted from the producer as authoritative correlation.
+The reference preserves ordered run history without copying receipt `data`
+into session telemetry. Consumers that need full evidence resolve `receiptId`
+through the receipt store.
 
-The envelope may live in an existing trajectory record. Implementations need
-not copy it into a separate receipt database.
+### Receipt store
+
+The harness records full receipts through a storage-neutral receipt-store
+boundary. The v1 boundary must support idempotent record, exact-filter list,
+and count operations. It must index exact receipt type and should index subject,
+agent, session key, run, invocation, and skill identity.
+
+An OpenClaw installation defaults to one shared local SQLite receipt database:
+
+```json5
+{
+  audit: {
+    receipts: {
+      enabled: true,
+      store: {
+        type: "sqlite",
+        path: "~/.openclaw/state/receipts.sqlite",
+      },
+    },
+  },
+}
+```
+
+Every agent served by that installation uses the configured store, so an
+operator can search and count outcomes across agents without scanning every
+session database. SQLite v1 is a single-host profile. The database must remain
+on storage local to the Gateway; direct network-filesystem or multi-host SQLite
+sharing is not supported. A future remote provider may implement the same
+store boundary without changing receipt producers or workflow results.
+
+The receipt store has its own retention, backup, and access policy. Session or
+trajectory rotation must not delete its full receipts. Deleting a receipt may
+leave a historical trajectory reference unresolved; implementations must not
+reconstruct full evidence from model prose or other untrusted content.
 
 ## Managed invocation contract
 
@@ -347,8 +408,9 @@ type AuditableSkillRunV1 = {
 };
 ```
 
-Storage may remain in existing trajectory, session, and usage records. This
-projection does not require a second ledger.
+The projection joins receipt-store records with existing trajectory, session,
+and usage facts. It does not duplicate full receipt payloads into a workflow or
+usage ledger.
 
 `firstEventAt` and `lastEventAt` bound the observed run history. `status` is
 present only when a terminal run status is known and uses the same normalized
@@ -392,8 +454,11 @@ evidence needed for later verification.
 
 Retention, backup, and export policy are deployment concerns. An implementation
 must not claim durable revisitability beyond its configured retention window.
-Deletion of a transcript or trajectory record may make its receipt unavailable;
-an external system remains authoritative for business objects it owns.
+Receipt retention is independent of transcript and trajectory retention. A
+retained receipt remains searchable after session telemetry rotates, although
+the transcript needed to reconstruct conversational context may no longer be
+available. An external system remains authoritative for business objects it
+owns.
 
 The v1 envelope provides correlation, not tamper evidence. Products that claim
 regulatory attestation or modification detection need a separately specified
