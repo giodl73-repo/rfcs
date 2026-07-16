@@ -16,7 +16,7 @@ This core specification defines:
   isolation intent;
 - typed receipts emitted by successful tools;
 - a configurable receipt-store boundary and a shared local SQLite profile;
-- managed skill invocation and exact executed-skill identity;
+- native managed child-run identity and exact executed-skill identity;
 - parent, child, session, and run correlation;
 - normalized run usage and captured cost;
 - minimum query, sanitization, and failure behavior;
@@ -50,7 +50,7 @@ Auditable Skills v1 separates three authorities:
 | --- | --- | --- |
 | Skill package | Declared outcomes, possible child skills, isolation intent | Runtime facts, permissions, budgets, or successful effects |
 | Claw or caller | Allowed skill graph, model and execution policy, limits | Evidence that an effect occurred |
-| Harness | Executed identity, invocation lineage, tool evidence, usage, cost, status | Business meaning beyond producer-defined receipt fields |
+| Harness | Executed identity on native runs, tool evidence, usage, cost, status | Business meaning beyond producer-defined receipt fields |
 
 An implementation must not treat package metadata as proof that an outcome
 occurred. It must not treat metadata as a permission grant.
@@ -64,10 +64,11 @@ Version 1 uses these compatibility rules:
 - Implementations may ignore all three metadata keys.
 - Unknown metadata keys must not prevent ordinary skill discovery or
   instruction loading.
-- Unknown or malformed values must not break ordinary instruction loading. A
-  managed invocation that relies on a malformed recognized field must reject
-  that invocation with a clear diagnostic rather than silently weakening the
-  requested behavior.
+- Unknown or malformed values must not break ordinary instruction loading.
+  Implementations should emit a bounded diagnostic when a recognized value is
+  ignored. A caller that requires a declaration for policy must fail closed
+  when that normalized declaration is absent; it must not treat malformed data
+  as permission.
 - Receipt producers may add optional fields within `data` without changing the
   core version.
 - A breaking change to a core record requires a new `schemaVersion`.
@@ -99,6 +100,14 @@ metadata:
 | `outcomes` | string | No | Whitespace-separated receipt types the skill intends to produce. |
 | `uses-skills` | string | No | Whitespace-separated skill names the skill may request as managed children. |
 | `isolation` | string | No | `shared`, `preferred`, or `required`. |
+
+```ts
+type SkillExecutionHintsV1 = {
+  outcomes?: string[];
+  usesSkills?: string[];
+  isolation?: "shared" | "preferred" | "required";
+};
+```
 
 List values are split on one or more Unicode whitespace characters. Empty
 tokens are discarded. Implementations should preserve declaration order while
@@ -235,6 +244,10 @@ fields. Receipt ID, sequence, time, agent, tool, tool-call, session, run, and
 optional invocation and skill correlation are harness facts and must not be
 accepted from the producer as authoritative correlation.
 
+`runId` is the canonical join to managed skill identity. Optional invocation
+and skill fields are denormalized convenience fields. When present, they must
+match the managed descriptor associated with the same run.
+
 The recorded receipt is the canonical full business-evidence record. A normal
 trajectory contains only this bounded reference:
 
@@ -318,61 +331,60 @@ The SQLite profile must:
 
 Disabling new receipt recording must not make existing records unreadable.
 
-## Managed invocation contract
+## Managed child-run contract
 
-Every explicit managed skill invocation receives one stable invocation ID. An
-isolated child also records its parent invocation and parent run when present.
+Every accepted managed skill call receives one stable invocation ID and starts
+one ordinary child run. Auditable Skills adds immutable skill identity to that
+native record; it does not create a parallel invocation lifecycle.
 
 ```ts
 type ExecutedSkillIdentityV1 = {
   name: string;
-  source: string;
+  source?: string;
   version?: string;
   digest: string;
 };
 
-type SkillInvocationV1 = {
-  schemaVersion: 1;
+type ManagedSkillDescriptorV1 = {
   invocationId: string;
-  parentInvocationId?: string;
-  runId?: string;
+  skillName: string;
+  skillSource?: string;
+  skillDigest: string;
   parentRunId?: string;
-  sessionId: string;
-  sessionKey?: string;
-  skill: ExecutedSkillIdentityV1;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
-  startedAt?: string;
-  completedAt?: string;
-  error?: {
-    code: string;
-    message: string;
-  };
+  executionHints?: SkillExecutionHintsV1;
+};
+
+type ManagedSkillRunV1 = {
+  schemaVersion: 1;
+  runId: string;
+  childSessionKey: string;
+  managedSkill: ManagedSkillDescriptorV1;
 };
 ```
 
 The installed package identity is authoritative for version and digest when
 available. A self-declared version is descriptive only. Workspace skills use a
-canonical source identity and content digest.
+canonical source identity and full content digest.
 
-Invocation state must settle once into `completed`, `failed`, or `cancelled`.
-Retries that consume model usage must remain observable as attempts within the
-owning run or as separately identified runs. A retry must not erase incurred
-usage.
+`ExecutedSkillIdentityV1` is the normalized reporting form of the native
+descriptor. Package version may be joined from retained install provenance
+when available; name and full digest identify the executed content without it.
+The existing child-run record remains authoritative for status, timestamps,
+duration, error, cancellation, cleanup, model selection, and session identity.
+Consumers resolve those fields by `runId`; they must not require a second
+pending/running/terminal invocation record. A managed parent is resolved by
+following `parentRunId` to the parent run's descriptor, so
+`parentInvocationId` need not be copied onto every child.
 
-`runId` is absent when invocation is rejected before dispatch. It is required
-once a run starts. `startedAt` is required for `running` and later states;
-`completedAt` is required for terminal states. A `failed` invocation requires a
-stable error code and sanitized message. Terminal state is chosen by one atomic
-settlement; a late completion or cancellation callback must not rewrite it.
+A request rejected before child dispatch returns a structured error and
+creates no `ManagedSkillRunV1`. Once accepted, `runId` and `childSessionKey`
+are required. Retries that start distinct native runs retain distinct run IDs
+and incurred usage.
 
-Existing trajectory invocation events normalize as follows: a started event is
-`running`; completion status `success` is `completed`, `error` is `failed`, and
-`interrupted` is `cancelled`. Implementations may retain the source status in a
-diagnostic field, but audit consumers use the normalized lifecycle above.
-
-Managed invocation reuses ordinary OpenClaw session, policy, sandbox, tool,
-credential, and model boundaries. The managed path must not create broader
-authority than an equivalent direct run.
+Managed dispatch reuses the caller's current skill snapshot and ordinary
+OpenClaw session, subagent, policy, sandbox, tool, credential, and model
+boundaries. The managed path must not create broader authority than an
+equivalent direct child run.
 
 ## Run usage and cost contract
 
@@ -398,18 +410,27 @@ Token values must be finite, non-negative integers. Cost must be a finite,
 non-negative number. Missing usage or pricing must be omitted, never invented
 as zero.
 
-The provider aggregate is preferred when present. Otherwise `total` is
-the sum of available normalized billable buckets according to OpenClaw's
-provider normalization rules. Failed, retried, and timed-out attempts are
-included whenever the provider reported usage.
+The provider aggregate is preferred when present. Otherwise `total` is input
+plus output. Cache read and cache write remain separate dimensions unless the
+provider's normalized aggregate explicitly includes them. `total` must not be
+populated from OpenClaw's context-window `totalTokens` snapshot. Failed,
+retried, and timed-out attempts are included whenever the provider reported
+usage.
 
 Cost and its basis are captured with the run. Historical audit output must not
 silently change when catalog pricing changes later.
 
+An operator-facing native subagent view may expose the current session usage
+and cost snapshot beside managed identity. A workflow accounting result must
+use cumulative observed usage for the contributing run, including reported
+failed or retried attempts, and must not substitute a context-window token
+snapshot. If the cumulative value cannot be established, it is unavailable
+rather than zero.
+
 ## Audit run projection
 
 An audit consumer should be able to obtain one versioned run projection that
-joins invocation identity, observed receipts, model identity, usage, and cost.
+joins managed-run identity, observed receipts, model identity, usage, and cost.
 
 ```ts
 type AuditableSkillRunV1 = {
@@ -420,7 +441,7 @@ type AuditableSkillRunV1 = {
   firstEventAt: string;
   lastEventAt: string;
   status?: "completed" | "failed" | "cancelled";
-  invocations: SkillInvocationV1[];
+  managedRun: ManagedSkillRunV1;
   models: Array<{
     provider?: string;
     modelId?: string;
@@ -437,8 +458,7 @@ and usage facts. It does not duplicate full receipt payloads into a workflow or
 usage ledger.
 
 `firstEventAt` and `lastEventAt` bound the observed run history. `status` is
-present only when a terminal run status is known and uses the same normalized
-lifecycle vocabulary as managed invocations.
+present only when a terminal native run status is known.
 
 `exclusive` means one isolated managed invocation owns the run's usage and
 cost. `shared` means multiple skills or invocations may have contributed. Audit
@@ -540,6 +560,12 @@ version, receipt ID, exact type, occurrence time, and harness correlation.
 Exports containing producer `data` require the same or stronger authorization
 and redaction policy as direct `get` and `list` operations.
 
+Managed child-run metadata may have a different retention window from full
+receipts. An implementation that claims later skill-level attribution must
+retain or export the `runId` to managed-skill association for that claimed
+window. If the association has expired, readers report identity as unavailable;
+they must not infer it from transcript prose or a receipt producer's data.
+
 The v1 envelope provides correlation, not tamper evidence. Products that claim
 regulatory attestation or modification detection need a separately specified
 integrity, signing, and verification layer.
@@ -571,7 +597,8 @@ A conforming harness:
 
 - validates metadata without breaking ordinary skill loading;
 - enforces the effective child graph and isolation requirement before dispatch;
-- records exact executed-skill identity and invocation lineage;
+- records exact executed-skill identity on the native child run and parent-run
+  lineage when present;
 - admits receipts only from successful tools;
 - attributes usage to runs and preserves cost basis;
 - exposes originating run and session correlation.
@@ -587,15 +614,18 @@ A conforming implementation should prove at least:
 5. A failed tool records no success receipt.
 6. A malformed receipt is omitted with a diagnostic.
 7. Exact type filtering returns the originating run and session.
-8. Parent and child invocation lineage survives completion and cleanup.
+8. Native child and parent-run lineage survives completion and configured
+   audit retention.
 9. Reported provider usage includes incurred failed or retried attempts.
 10. Missing usage and unavailable cost remain absent rather than becoming zero.
-11. A malformed recognized metadata field rejects managed invocation without
-    breaking ordinary skill loading.
-12. A pre-dispatch rejection has no `runId`, while a started run does.
+11. A malformed recognized metadata field does not become permission and does
+    not break ordinary skill loading.
+12. A pre-dispatch rejection creates no managed-run record, while an accepted
+    call has one native `runId` and child session key.
 13. Oversized receipt data is omitted without changing the successful tool
     result.
-14. Competing completion and cancellation callbacks settle one terminal state.
+14. Completion and cancellation use the native child-run terminal state rather
+    than a second invocation settlement path.
 15. Two local agents write to one configured store and an all-agent exact-type
     count returns both records.
 16. A trajectory reference contains the receipt ID and correlation but no
@@ -607,14 +637,16 @@ A conforming implementation should prove at least:
     health diagnostic and no fallback store is created.
 20. List pagination is stable when multiple receipts share an occurrence time,
     and count does not materialize producer data.
+21. An expired run-to-skill association is reported as unavailable and is not
+    reconstructed from transcript or receipt data.
 
 ## Example: support work thread
 
 An email channel maps a provider conversation to a stable OpenClaw session. A
 support skill declares `customer.verified` and `case.resolved`. The verification
 and case tools emit those receipts only after their respective operations
-succeed. OpenClaw records the exact skill, invocation, model run, usage, cost,
-and originating session.
+succeed. OpenClaw records the exact skill on the native child run and retains
+its model usage, cost, and originating session.
 
 An operator can later filter `case.resolved`, count resolutions by skill digest,
 inspect a resolution code in receipt data, and reopen the originating session.

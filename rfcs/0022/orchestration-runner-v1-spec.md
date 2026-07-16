@@ -36,7 +36,7 @@ OpenClaw core owns the execution facts. A runner owns workflow decisions.
 | --- | --- |
 | Skill resolution and effective policy | Step ordering and dependency readiness |
 | Managed child dispatch | Branching and retry policy when supported |
-| Invocation and run lineage | Pause and resume orchestration |
+| Managed descriptor on native child runs | Pause and resume orchestration |
 | Tool receipts and session correlation | Workflow-level status |
 | Observed model usage and captured cost | Aggregation and limit decisions |
 
@@ -47,6 +47,9 @@ manufacture successful outcomes or usage.
 ## Compatibility
 
 - Direct managed skill invocation does not require a runner.
+- The baseline direct profile is one current-agent, one-shot native subagent
+  run. ACP, visible/thread-bound, and persistent managed sessions require a
+  later profile rather than silent fallback.
 - An installation without Lobster may use the core runner profile.
 - An installation with Lobster may continue to use Lobster through an adapter.
 - A runner may support capabilities beyond this addendum without changing the
@@ -227,6 +230,12 @@ OpenClaw resolves the exact skill artifact, effective child policy, isolation,
 model, tools, credentials, and sandbox at dispatch time. A runner may request a
 skill by name but must not bypass those checks.
 
+The baseline adapter dispatches through the same managed `sessions_spawn`
+surface as a direct caller. Acceptance returns the native `runId`, child
+session key, and managed invocation ID. The runner stores only its
+workflow-to-run association; it does not copy child lifecycle into a second
+invocation record.
+
 OpenClaw derives the parent session from the workflow binding; the runner does
 not supply or redirect it. The requested step, skill, and receipt gates must
 match the validated plan and current workflow state. In the core profile, input
@@ -271,10 +280,17 @@ type ManagedSkillStepResultV1 = {
 ```
 
 The referenced types come from the Auditable Skills v1 core specification. The
-result must contain observed recorded-receipt envelopes only. It must not
-substitute declared `outcomes`. Usage and cost are omitted when unavailable.
-Every returned receipt must correlate to the result's run. When direct
-invocation correlation is present, it must match the result's invocation.
+invocation, run, and skill fields are read from the native managed child
+record. The result must contain observed recorded-receipt envelopes only. It
+must not substitute declared `outcomes`. Usage and cost are omitted when
+unavailable. Every returned receipt must correlate to the result's run. When
+direct invocation correlation is present, it must match the managed descriptor,
+but `runId` remains the canonical join.
+
+If the native run remains but its managed-skill association has expired, the
+runner returns `managed_identity_unavailable` instead of a
+`ManagedSkillStepResultV1`. It must not infer skill identity from the task
+prompt, transcript prose, or receipt producer data.
 
 A trajectory `audit.receipt.recorded` reference is correlation, not the full
 managed-step receipt. OpenClaw resolves it through the configured receipt-store
@@ -431,9 +447,9 @@ as a prerequisite for basic composition.
 
 ### Phase 1: extract the shared contracts
 
-Move workflow/step identity, the managed step request and result envelope, and
-accounting normalization into OpenClaw-owned interfaces. Preserve current
-Lobster behavior behind an adapter.
+Define workflow/step identity plus a read-only managed step result over the
+native subagent, session-usage, trajectory, and receipt-store records. Preserve
+current Lobster behavior behind an adapter; add no invocation lifecycle store.
 
 Exit criterion: the existing RFC 0022 support workflow passes through the
 adapter without changing its receipts, lineage, or totals. No adapter opens
@@ -441,7 +457,7 @@ SQLite directly.
 
 ### Phase 2: add the core sequential runner
 
-Implement the core profile over existing managed invocation and TaskFlow/runtime
+Implement the core profile over existing managed child runs and TaskFlow/runtime
 state. Support dependencies, exact receipt gates, failure, cancellation, and
 accounting only.
 
@@ -501,6 +517,9 @@ A conforming runner must prove:
 16. Shared run usage is counted once and never reported as exclusive step cost.
 17. A required receipt reference that cannot be resolved fails as
     `receipt_unavailable` and is not reconstructed from trajectory or prose.
+18. An unavailable native run-to-skill association fails as
+    `managed_identity_unavailable` and is not inferred from task or receipt
+    content.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one

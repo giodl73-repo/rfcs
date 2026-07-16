@@ -16,10 +16,10 @@ rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
 Define a portable foundation for skills whose effects can be understood after a
 model run ends. A skill may declare the outcomes it can produce, the other
 skills it may use, and its isolation needs. A runtime records the durable
-evidence it actually observes, together with business context, exact execution
-lineage, token usage, and cost. These primitives make completed work searchable
-and auditable and form a natural stepping stone to workflows without turning
-the Agent Skills format into a workflow engine.
+evidence it actually observes, together with business context, exact
+managed-run identity, token usage, and cost. These primitives make completed
+work searchable and auditable and form a natural stepping stone to workflows
+without turning the Agent Skills format into a workflow engine.
 
 ## Motivation
 
@@ -39,13 +39,13 @@ find, count, explain, and cost that work later.
 This RFC adds a small vocabulary for what a skill may accomplish, which other
 skills it may use, and whether its work needs an isolated run. A successful
 tool call may then emit typed evidence such as `inventory.sent`,
-`payment.authorized`, or `invoice.paid`. OpenClaw records the exact skill
-invocation, child-run lineage, model usage, USD cost when available, and
-evidence actually observed in one configurable receipt store shared by the
-Gateway's agents. When skills are composed into a workflow, a runner
-aggregates that observed usage and applies caller-owned limits. The current
-proof uses Lobster; the contract also permits a minimal OpenClaw core runner or
-another conforming adapter.
+`payment.authorized`, or `invoice.paid`. OpenClaw records the exact skill on its
+existing child-run record and uses the native run ID to join model usage, USD
+cost when available, and evidence actually observed in one configurable
+receipt store shared by the Gateway's agents. When skills are composed into a
+workflow, a runner aggregates that observed usage and applies caller-owned
+limits. The current proof uses Lobster; the contract also permits a minimal
+OpenClaw core runner or another conforming adapter.
 
 The central invariant is:
 
@@ -69,7 +69,7 @@ An operator should be able to answer:
 
 - Which exact skill revision ran?
 - Who or what invoked it?
-- Which model calls and child runs did it create?
+- Which native child run performed it?
 - How many tokens and US dollars did it consume?
 - Was the cost provider-billed or catalog-estimated?
 - Which business outcome did its tools prove?
@@ -80,17 +80,16 @@ For example, an isolated refund skill may produce this run summary:
 
 ```json
 {
-  "skill": {
-    "name": "issue-refund",
-    "digest": "sha256:abc123"
+  "managedSkill": {
+    "invocationId": "skill_456",
+    "skillName": "issue-refund",
+    "skillDigest": "sha256:abc123"
   },
-  "invocationId": "inv-456",
   "runId": "run-123",
   "usage": {
-    "inputTokens": 3200,
-    "outputTokens": 480,
-    "cacheReadTokens": 1200,
-    "totalTokens": 4880
+    "input": 3200,
+    "output": 480,
+    "total": 3680
   },
   "cost": {
     "usd": 0.0184,
@@ -108,15 +107,16 @@ For example, an isolated refund skill may produce this run summary:
 ```
 
 The authorization code is business evidence supplied by the payment tool. The
-skill name, digest, invocation ID, run ID, usage, and cost basis are harness
-facts. Neither substitutes for the other.
+skill name, digest, managed invocation ID, run ID, usage, and cost basis are
+harness facts. Neither substitutes for the other.
 
 ## Goals
 
 - Let successful tool results assert typed, filterable business receipts.
 - Record full receipts once in a configurable store shared across local agents.
 - Add a portable, optional `SKILL.md` declaration for managed orchestration.
-- Record exact skill identity, invocation lifecycle, and parent/child lineage.
+- Record exact skill identity on the native child run and retain parent-run
+  lineage.
 - Attribute tokens and USD cost honestly at the model-run boundary.
 - Aggregate orchestration spend without counting a run more than once.
 - Roll observed managed-run usage into workflow totals and existing workflow
@@ -187,7 +187,7 @@ OpenClaw configuration.
 OpenClaw records what actually happened:
 
 - canonical skill source, version when known, and content or package digest;
-- invocation, parent invocation, run, parent run, session, and Claw identity;
+- managed invocation, run, parent run, child session, and Claw identity;
 - provider, model, normalized tokens, captured USD cost, and cost basis;
 - status, duration, errors, and child runs;
 - receipts actually emitted by successful tools;
@@ -332,17 +332,40 @@ can configure another local path—for example, a database dedicated to a team o
 agents—while keeping the producer and query contracts unchanged. SQLite is a
 single-host profile, not a network-filesystem or multi-host database.
 
-The receipt does not own token usage. Audit projections join it to run-level
-usage and spend through the invocation and run identity.
+The receipt does not own token usage. Audit projections join it to managed-run
+identity and spend through the native run ID. Optional invocation fields on a
+receipt are denormalized correlation, not a second join key or lifecycle store.
 
 Malformed receipt data is not recorded as evidence. Receipt recording failure
 does not rewrite the underlying tool outcome, but it remains observable as an
 audit diagnostic.
 
-### Invocation and exact skill identity
+### Managed run and exact skill identity
 
-Every explicit managed skill call receives one stable invocation ID. An
-isolated child additionally receives parent invocation and parent run IDs.
+Every accepted managed skill call receives one stable invocation ID, one native
+child run ID, and one child session key. The immutable skill descriptor belongs
+on OpenClaw's existing child-run record:
+
+```ts
+type ManagedSkillDescriptor = {
+  invocationId: string;
+  skillName: string;
+  skillSource?: string;
+  skillDigest: string;
+  parentRunId?: string;
+  declarations?: SkillExecutionHints;
+};
+```
+
+The native child run already owns running, completion, failure, cancellation,
+duration, cleanup, model, and session lifecycle. Auditable Skills does not copy
+that state into a parallel invocation state machine. A parent managed
+invocation can be resolved through `parentRunId` and the parent run's own
+descriptor rather than duplicating `parentInvocationId` on every child.
+
+An invocation rejected before dispatch returns a structured error and creates
+no managed-run record. Once dispatch is accepted, `runId` is the canonical join
+across the managed descriptor, session usage, trajectory facts, and receipts.
 
 Runtime evidence should identify the exact executed artifact:
 
@@ -373,8 +396,9 @@ This identity comes from RFC 0016 install provenance. It lets reports compare
 cost and outcomes by exact skill and Claw revision without putting runtime data
 back into `SKILL.md` or the Claw manifest.
 
-Managed child invocation reuses OpenClaw's existing child-session and gateway
-agent paths. It does not create a second executor. Parent and child calls retain
+Managed child invocation reuses OpenClaw's existing skill snapshot,
+`sessions_spawn`, child-session, subagent-registry, and model-selection paths.
+It does not create a second executor or ledger. Parent and child calls retain
 normal policy and do not widen tool, sandbox, credential, or model access.
 
 ### Spend accounting
@@ -406,9 +430,11 @@ OpenClaw reuses its normalized provider usage buckets:
 - cache write;
 - total.
 
-The provider aggregate is preferred when present. Otherwise total usage is the
-sum of the normalized billable buckets. Failed, retried, and timed-out attempts
-are included whenever the provider reported usage.
+The provider aggregate is preferred when present. Otherwise a simple run total
+is input plus output; cache read and cache write remain separate dimensions and
+must not be confused with OpenClaw's context-window `totalTokens` snapshot.
+Failed, retried, and timed-out attempts are included whenever the provider
+reported usage.
 
 #### USD cost
 
@@ -432,6 +458,12 @@ omitted when neither provider billing nor a usable catalog estimate exists.
 
 An orchestration report should include per-run, per-model, and total spend so a
 Claw can show which skill revisions produced which outcomes at what cost.
+
+The native subagent view is a useful first inspection surface for managed-run
+identity, input/output usage, cache snapshot, and estimated cost. Workflow
+limits require the cumulative observed usage for each contributing run; they
+must not use the context-window `totalTokens` snapshot as spend or treat a
+missing cumulative value as zero.
 
 ### Workflow accounting and limits
 
@@ -492,7 +524,7 @@ audit dimensions. An implementation should make it possible to:
   revision, run, session, tool, and time;
 - count and group outcomes by type, status, subject, skill or Claw revision,
   model, and time window;
-- join outcomes to invocation lifecycle, parent and descendant runs, model
+- join outcomes to managed-run identity, parent and descendant runs, model
   identity, normalized usage, captured cost, and workflow limit state;
 - compare a skill's declared `outcomes` with observed evidence to find runs
   where expected evidence is missing or an unexpected outcome was recorded.
@@ -514,9 +546,9 @@ resource rather than a special trajectory filter. Exact command names are not
 normative, but a useful CLI shape is:
 
 ```text
-openclaw receipts list --type case.resolved
-openclaw receipts count --type invoice.paid --all-agents
-openclaw receipts show <receipt-id>
+openclaw receipts --type case.resolved
+openclaw receipts --count --type invoice.paid
+openclaw receipts --id <receipt-id>
 ```
 
 The CLI, Gateway API, plugins, and workflow runners should call the same
@@ -534,8 +566,7 @@ possible outcomes. Those declarations help the caller plan and govern the
 work, but they do not claim that either result occurred. If the agent verifies
 the customer and resolves the issue, the responsible tools record those
 outcomes with their evidence. The harness adds the exact skill revision,
-invocation and child-run lineage, model usage, cost, and workflow accounting
-facts.
+managed child-run identity, model usage, cost, and workflow accounting facts.
 
 The session now serves as more than a transcript. It is a retained work thread
 that another agent or operator can revisit:
@@ -638,14 +669,15 @@ OpenClaw-specific orchestration names in portable `SKILL.md` files.
 
 ## Implementation plan
 
-The fork POC deliberately proved assumptions one step at a time. Those five
-implementation slices remain useful evidence, but they are not the proposed
-upstream landing stack:
+The fork series deliberately proved assumptions one step at a time. The first
+two OpenClaw slices have now been rebuilt as compact landing candidates; the
+later workflow slices remain archived POC evidence rather than a proposed
+upstream stack:
 
 | Evidence | What it proved |
 | --- | --- |
 | [OpenClaw #97](https://github.com/giodl73-repo/openclaw/pull/97) | Shared durable receipts, trajectory references, exact query, and count. |
-| [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, managed invocation, lineage, and run usage. |
+| [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, exact skill digest, native managed child-run identity, and existing usage/cost projection. |
 | [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | Full-receipt resolution and evidence-driven workflow composition. |
 | [Lobster #1](https://github.com/giodl73-repo/lobster/pull/1) | Accounting continuity across pause and resume. |
 | [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Managed child usage rolled into workflow totals and limits. |
@@ -658,8 +690,10 @@ boundary without first accepting a workflow engine:
    shared store, trajectory references, and storage-neutral `get`, `list`, and
    `count`. This round has no skill metadata or workflow dependency.
 2. **Managed invocation.** Add the optional Agent Skills declarations, exact
-   executed-skill identity, isolated invocation, lineage, and run-level usage
-   projection after the receipt boundary settles.
+   executed-skill identity on the native subagent record, parent-run lineage,
+   and existing run usage/cost projection after the receipt boundary settles.
+   Before claiming long-term skill attribution, define retention or export for
+   the run-to-skill association alongside the receipt retention claim.
 3. **Runner adapters and accounting.** Expose the normalized managed-step
    result to a minimal core runner and optional Lobster adapter. Combine the
    workflow composition and spend projection learned in #100 and #109; keep
@@ -704,9 +738,10 @@ The first complete series is successful when:
 5. A skill can declare outcomes, other skills it may use, and isolation intent
    in standard-compatible string metadata.
 6. Ordinary skills without the metadata remain backward compatible.
-7. One explicit invocation records exact skill identity and lifecycle.
+7. One accepted managed call records exact skill identity on its native child
+   run without copying child lifecycle into a second state machine.
 8. One declared isolated child skill runs through existing OpenClaw session
-    and policy primitives with complete parent/child lineage.
+    and policy primitives with native child and parent-run lineage.
 9. Each isolated run reports normalized tokens and captured cost with its basis
     when available.
 10. Shared turns are labelled shared rather than divided among skills.
@@ -721,6 +756,8 @@ The first complete series is successful when:
     across local agents and return their originating session correlation.
 17. Store health, unsupported schema, retention, and backup behavior are
     documented before the SQLite profile is presented as production-ready.
+18. If managed-run identity expires before a retained receipt, readers report
+    identity as unavailable rather than reconstructing it from prose.
 
 ## A natural stepping stone to workflows
 
@@ -730,11 +767,12 @@ the reusable primitives a workflow layer would otherwise need to invent:
 - `outcomes` provides names for expected completion results;
 - `uses-skills` provides potential composition edges between skills;
 - `isolation` provides honest execution and accounting boundaries;
-- invocation and parent/child lineage identify each execution;
+- managed child-run identity and parent-run lineage identify each execution;
 - observed receipts provide evidence for completion gates;
 - normalized usage and workflow limits provide spend controls.
 
-OpenClaw does not need a second workflow receipt, usage, or session store. The
+OpenClaw does not need a second invocation lifecycle, workflow receipt, usage,
+or session store. The
 configured receipt store remains the one canonical source of full outcome
 evidence. TaskFlow already owns durable flow identity and linked child tasks. A
 minimal core runner can cover static sequential dependencies, failure,
