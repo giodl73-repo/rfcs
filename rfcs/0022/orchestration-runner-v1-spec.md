@@ -319,6 +319,11 @@ diagnostics rather than crossing through this result.
 OpenClaw supplies observed run facts. The active runner owns workflow totals and
 limit decisions through the following invariants:
 
+The runner consumes the usage snapshot retained by the exact native `runId`.
+It must not read a later mutable session total as a substitute. Cost-based
+limits require cost and basis captured with that same run; token-only results
+can support token limits while leaving USD unavailable.
+
 1. Each distinct contributing `runId` is counted at most once.
 2. Retries with distinct run ids remain incurred spend.
 3. A pause or process restart must not discard already counted runs.

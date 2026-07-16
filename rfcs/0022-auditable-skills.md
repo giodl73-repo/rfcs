@@ -465,6 +465,13 @@ limits require the cumulative observed usage for each contributing run; they
 must not use the context-window `totalTokens` snapshot as spend or treat a
 missing cumulative value as zero.
 
+The implementation should carry cumulative usage through the terminal native
+run lifecycle or completion result and snapshot it on the exact retained run
+record. `runId` is the accounting identity. A later session turn or steer
+replacement must not overwrite or inherit an earlier run's usage. Exact
+historical USD remains optional until its amount and basis are captured with
+the run; a mutable session estimate is not a durable cost receipt.
+
 ### Workflow accounting and limits
 
 OpenClaw does not introduce a second workflow budget ledger. A completed
@@ -669,18 +676,18 @@ OpenClaw-specific orchestration names in portable `SKILL.md` files.
 
 ## Implementation plan
 
-The fork series deliberately proved assumptions one step at a time. The first
-two OpenClaw slices have now been rebuilt as compact landing candidates; the
-later workflow slices remain archived POC evidence rather than a proposed
-upstream stack:
+The fork series deliberately proved assumptions one step at a time. Four
+OpenClaw slices have now been rebuilt as compact, independently reviewable
+evidence. The earlier Lobster workflow experiments remain archived evidence,
+not a required landing stack:
 
 | Evidence | What it proved |
 | --- | --- |
 | [OpenClaw #97](https://github.com/giodl73-repo/openclaw/pull/97) | Shared durable receipts, trajectory references, exact query, and count. |
-| [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, exact skill digest, native managed child-run identity, and existing usage/cost projection. |
-| [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | Full-receipt resolution and evidence-driven workflow composition. |
+| [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, exact skill digest, and native managed child-run identity. |
+| [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | One runner-neutral result joining exact native status and durable receipts. |
+| [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Cumulative retry-aware usage retained on the exact native run and exposed by the managed result. |
 | [Lobster #1](https://github.com/giodl73-repo/lobster/pull/1) | Accounting continuity across pause and resume. |
-| [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Managed child usage rolled into workflow totals and limits. |
 
 Upstream work should proceed in rounds so maintainers can accept the core
 boundary without first accepting a workflow engine:
@@ -689,14 +696,19 @@ boundary without first accepting a workflow engine:
    OpenClaw vertical slice containing trusted tool receipts, the configurable
    shared store, trajectory references, and storage-neutral `get`, `list`, and
    `count`. This round has no skill metadata or workflow dependency.
-2. **Managed invocation.** Add the optional Agent Skills declarations, exact
-   executed-skill identity on the native subagent record, parent-run lineage,
-   and existing run usage/cost projection after the receipt boundary settles.
+2. **Managed invocation and result.** Add the optional Agent Skills
+   declarations, exact executed-skill identity on the native subagent record,
+   parent-run lineage, and one runner-neutral native result after the receipt
+   boundary settles.
    Before claiming long-term skill attribution, define retention or export for
    the run-to-skill association alongside the receipt retention claim.
-3. **Runner adapters and accounting.** Expose the normalized managed-step
+3. **Exact-run accounting.** Carry cumulative observed usage through the native
+   completion lifecycle, retain it with the exact run, and expose it as an
+   optional result field. Capture cost and basis with the run before presenting
+   exact historical USD or enforcing USD limits.
+4. **Runner adapters and budgets.** Expose the normalized managed-step
    result to a minimal core runner and optional Lobster adapter. Combine the
-   workflow composition and spend projection learned in #100 and #109; keep
+   workflow composition and spend projection learned in the prototypes; keep
    Lobster's pause/resume accounting change in its owning repository.
 
 Each round should be reviewable and useful on its own. The current workflow

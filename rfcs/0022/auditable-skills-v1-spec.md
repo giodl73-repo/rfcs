@@ -417,6 +417,12 @@ populated from OpenClaw's context-window `totalTokens` snapshot. Failed,
 retried, and timed-out attempts are included whenever the provider reported
 usage.
 
+The harness should carry cumulative usage on the terminal native-run lifecycle
+or completion result and snapshot it on the exact retained run record. The
+native `runId` is the accounting identity. Consumers must not reconstruct an
+older run from mutable session usage after a later turn, steer, or replacement
+run. A replacement run starts with no inherited usage.
+
 Cost and its basis are captured with the run. Historical audit output must not
 silently change when catalog pricing changes later.
 
@@ -426,6 +432,10 @@ use cumulative observed usage for the contributing run, including reported
 failed or retried attempts, and must not substitute a context-window token
 snapshot. If the cumulative value cannot be established, it is unavailable
 rather than zero.
+
+Likewise, a mutable session cost estimate is not exact historical run cost. An
+implementation may expose token usage before cost, but it must omit exact-run
+cost until the amount and basis can be captured with that run.
 
 ## Audit run projection
 
