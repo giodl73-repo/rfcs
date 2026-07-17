@@ -16,7 +16,7 @@ rfc_pr: https://github.com/giodl73-repo/rfcs/pull/5
 Define the portable contract that allows a host to remove all OpenClaw compute
 and later recreate the same logical runtime on fresh compute. The contract
 combines online recovery points, a one-way drain-to-exit hibernation handoff,
-durable wake intent, exclusive generation authority, ordered restore, and
+durable wake registration, exclusive generation authority, ordered restore, and
 restore-gated readiness.
 
 OpenClaw and its state owners remain authoritative for state meaning, native
@@ -317,7 +317,7 @@ invariants and observable guarantees hold.
 | Who initiates hibernation? | **Profile policy:** the host proposes hibernation based on idle and cost policy. OpenClaw may refuse because of active work, unsafe state, or an imminent deadline. | Compute policy belongs to the host, while only OpenClaw can determine semantic quiescence. | OpenClaw gains a product-level reason to request sleep independent of host policy. |
 | How is shutdown raced against newly arriving work? | **Core invariant:** sleep authorization is granted only when no wake work is pending and is revoked by new work. | Without an atomic host decision, a runtime can publish a final checkpoint and be destroyed while work is already queued for it. | Host ingress can prove an equivalent atomic handoff without explicit authorization state. |
 | Are generation, sleep, and restore authority separate leases? | **Implementation hypothesis:** no. One host-issued lifecycle record carries the stable owner generation and transitions through `active`, `draining`, revocable `sleep-authorized`, `restore-held`, and `restore-committed` states. After destruction, the durable checkpoint/wake record persists without a process lease. | One authority avoids races and contradictory ownership between independently renewed generation, sleep, and restore leases. The restore hold extends the existing lifecycle owner; it does not create another generation domain. | The host cannot make work admission, sleep authorization, and restore exclusion conditional on one durable lifecycle record. |
-| How is a recovery point published? | **Core invariant:** the host atomically makes one immutable manifest and its earliest wake deadline resumable, then returns a receipt bound to that exact manifest. Components do not independently become the aggregate recovery point. | Partial artifact publication or an unbound wake deadline can produce a checkpoint that restores incompletely or wakes late. | The storage substrate provides an equivalent transactional aggregate over independently published components. |
+| How is a recovery point published? | **Core invariant:** the host atomically accepts one immutable manifest, its final wake registration, and revocable sleep authorization. Components do not independently become the aggregate recovery point. | Partial artifact publication or an unbound wake deadline can produce a checkpoint that restores incompletely or wakes late. | The storage substrate provides an equivalent transactional aggregate over independently published components. |
 | Is one global mutation generation required? | **Core boundary:** no. The manifest records native component consistency identities where they already exist, plus capture time and artifact digests. This RFC does not add mutation participation to existing writers. | OpenClaw currently has global SQLite, per-agent SQLite, file-backed sessions/config, and workspace state without one complete mutation ordering. | A separate storage-consistency RFC introduces and proves a global ordering. |
 
 ### Wake, fencing, and delivery
@@ -396,13 +396,13 @@ This RFC standardizes lifecycle meaning around existing state stores:
 | checkpoint | Capture a recoverable artifact set while the runtime continues running. It does not change canonical storage or imply that the capture remains current. |
 | sleep | Temporarily reduce or suspend work while retaining the same compute or process identity. Sleep is host-specific and does not itself provide recovery portability. |
 | clean shutdown | Run OpenClaw's existing graceful teardown successfully. It does not imply an aggregate checkpoint or future resume. |
-| hibernate | Close admission, drain work, complete clean shutdown, publish a final recovery point and wake intent, then permit compute removal. |
+| hibernate | Close admission, drain work, complete clean shutdown, publish a final recovery point, atomically accept its wake registration and sleep authorization, then permit compute removal. |
 | wake | Provision compute because retained ingress or a semantic deadline requires the logical runtime. Wake does not deliver work before readiness. |
 | restore | Materialize and validate a selected recovery point on fresh compute without changing the source artifact. |
 | startup | Start a clean runtime or a restored runtime. Restored startup keeps readiness closed until validation and reconciliation complete. |
 
 Checkpoint is the recovery primitive. Hibernate composes checkpoint with clean
-shutdown and durable wake intent. Wake composes provisioning with restored
+shutdown and a durable wake registration. Wake composes provisioning with restored
 startup. These compositions define Portable and Elastic behavior without
 changing how OpenClaw stores live state.
 
@@ -415,7 +415,7 @@ run inside OpenClaw:
 | --- | --- | --- |
 | `checkpoint` | Schedule and orchestrate native online capture, validate required state surfaces, produce the exact manifest, and invoke the selected publication provider. Local materialization can complete without an external provider. | Operate an external provider that durably accepts and retains the exact manifest according to policy. |
 | `restore` | Select an explicitly requested or policy-compatible immutable point, materialize it, validate integrity and compatibility, reconstruct declared state, reconcile cron, and hold readiness closed until complete. | For automatic replacement, authorize the point, provision the destination, acquire and commit the durable restore hold, re-issue external capabilities and credentials, and admit only the matching restored startup. |
-| `hibernate` | Accept a host proposal, close admission, report blockers, drain work, complete clean shutdown, and produce the closed-state handoff result. | Retain new ingress, perform post-exit closed-state capture when required, atomically accept the final point and wake intent, then remove compute. |
+| `hibernate` | Accept a host proposal, close admission, report blockers, drain work, complete clean shutdown, and produce the closed-state handoff result and semantic wake registration. | Retain new ingress, perform post-exit closed-state capture when required, atomically accept the final point, wake registration, and sleep authorization, derive `safeToDestroy`, then remove compute. |
 | `wake` | Define the checkpoint-bound semantic deadline and perform restored startup, scheduler reconciliation, and readiness validation after provisioning. | Observe retained ingress or the deadline, allocate one fenced generation, inject capabilities, and withhold retained delivery until OpenClaw is ready. |
 | `sleep` | Report whether current work and owner state permit a host-specific sleep operation. | Suspend or retain the same compute using host-native mechanics. |
 
@@ -603,7 +603,7 @@ The feature-to-level projection is:
 | automatic restore onto fresh compute | `Portable` | Runtime identity is independent of the original process or machine. |
 | final clean shutdown and planned handoff | `Portable` | Planned replacement captures the cleanly persisted final state instead of falling back to the periodic RPO. |
 | restore-gated readiness and degraded recovery reporting | `Portable` | Work cannot observe partial or silently stale restore state. |
-| durable wake intent and earliest semantic deadline | `Elastic` | No resident process is needed to remember when compute must return. |
+| durable wake registration and earliest semantic deadline | `Elastic` | No resident process is needed to remember when compute must return. |
 | wake-capable retained ingress | `Elastic` | Triggering work survives the cold-start window and is delivered after readiness. |
 | idle retirement and revocable sleep authorization | `Elastic` | The host may remove compute without racing newly queued work. |
 | scheduler reconciliation before admission | `Elastic` | Cron remains OpenClaw-owned across an absent interval. |
@@ -630,7 +630,8 @@ The following are capabilities or safety invariants, not independent knobs:
 - required state-surface coverage and manifest integrity;
 - online consistency without a runtime-wide pause;
 - generation fencing for automatic replacement;
-- atomic final recovery-point and wake-intent publication;
+- atomic final recovery-point, wake-registration, and sleep-authorization
+  acceptance;
 - restore validation before readiness;
 - durable retention and redelivery for every ingress allowed to wake absent
   compute;
@@ -648,6 +649,9 @@ must not silently degrade to a weaker guarantee.
 
 The normative level requirements and conformance rules are defined in the
 [State CAPE v1 Specification](0021/state-cape-v1-spec.md).
+The normative Elastic hibernation, wake-registration, and host activation
+contract is defined in the
+[Elastic Host Lifecycle v1 Specification](0021/elastic-host-lifecycle-v1-spec.md).
 Optional composition with canonical Readiness, Hosting Profiles, and Hosted
 Integration owner evidence is defined in the
 [State CAPE Readiness and Hosting Composition v1 Addendum](0021/readiness-hosting-composition-v1-addendum-spec.md).
@@ -780,8 +784,10 @@ clean shutdown rather than introducing a global state transaction:
    state;
 6. OpenClaw returns an artifact manifest with capture provenance and any
    shutdown warnings;
-7. the host atomically publishes the manifest with required wake intent;
-8. the host authorizes destruction only after accepting that exact manifest.
+7. the host atomically accepts the publication, final wake registration, and
+   revocable sleep authorization;
+8. the host derives destruction authorization only after strict source
+   finalization against those exact identities.
 
 This is a one-way drain-to-exit, not a pause and resume. If publication fails
 after clean shutdown, the host may restart from the still-local state or treat
@@ -899,11 +905,13 @@ A publication commit contains:
 - `nextRequiredAt` and reason class when the runtime may hibernate; and
 - idempotency identity and deadline.
 
-A successful receipt binds the exact runtime, generation, checkpoint, manifest
-digest, durability boundary, accepted time, wake intent, publication
-plugin/provider/version/generation, and opaque storage receipt. Exact replay is
-idempotent; reuse of a checkpoint ID with another digest conflicts; stale
-generations and late results cannot advance recovery status.
+A successful publication receipt binds the exact runtime, generation,
+checkpoint, manifest digest, durability boundary, accepted time, publication
+plugin/provider/version/generation, and opaque storage receipt. The host
+lifecycle authority separately and atomically binds that acceptance to the
+final wake registration and sleep authorization. Exact replay is idempotent;
+reuse of a checkpoint ID with another digest conflicts; stale generations and
+late results cannot advance recovery status.
 
 The same continuity-owned interface supplies bounded manifest/artifact
 retrieval needed for restore. Retention and garbage collection remain host
@@ -1025,6 +1033,18 @@ restore unless the selected continuity policy explicitly allows a clean start.
 
 ### Elastic wake and retained ingress
 
+The minimal normative host surface is defined by the
+[Elastic Host Lifecycle v1 Specification](0021/elastic-host-lifecycle-v1-spec.md):
+
+```text
+PrepareHibernate
+EnsureRuntimeReady
+InspectElasticLifecycle
+```
+
+Callers do not orchestrate publication, retrieval, restore, scheduler
+reconciliation, or readiness as separate host-facing operations.
+
 Elastic operation requires no resident OpenClaw process. The host therefore
 owns the durable facts needed while compute is absent:
 
@@ -1052,15 +1072,22 @@ The wake sequence is:
 
 ```text
 retained activity or wake deadline becomes due
-  -> host revokes sleep authorization and coalesces provisioning
-  -> host allocates fresh compute and a new runtime generation
-  -> publication provider retrieves the selected recovery point
-  -> continuity restores and validates dependency closure
-  -> OpenClaw reconciles cron and durably queues catch-up work
-  -> continuity and dependency-owner readiness become True
-  -> Gateway admission opens
-  -> Channel/API owners deliver retained work with generation fencing
+  -> host durably revokes sleep authorization
+  -> EnsureRuntimeReady coalesces provisioning
+     -> host allocates fresh compute and one new runtime generation
+     -> publication provider retrieves the selected recovery point
+     -> continuity restores and validates dependency closure
+     -> OpenClaw reconciles cron and durably queues catch-up work
+     -> continuity and dependency-owner readiness become True
+     -> Gateway admission opens
+  -> Channel/API owners deliver retained work to the returned generation
 ```
+
+OpenClaw's final `nextRequiredAt`, reason class, and scheduler generation are
+accepted atomically with the final recovery point and sleep authorization.
+Running projections may inform idle policy, but only that final wake
+registration is authoritative while compute is absent. The host may subtract
+cold-start lead time; it cannot interpret cron definitions or invoke jobs.
 
 Multiple activities may coalesce into one compute wake but remain independently
 durable. A failed restore leaves work retained. An enabled Channel whose ingress
@@ -1241,7 +1268,9 @@ resulting proven capability set into operator-visible levels.
 
 **Hibernate, wake, and retained-ingress conformance** additionally proves:
 
-- atomic final recovery-point and wake-intent acceptance;
+- atomic final recovery-point, wake-registration, and sleep-authorization
+  acceptance;
+- same-request `EnsureRuntimeReady` replay and conflicting-request rejection;
 - queued ingress revokes sleep authorization;
 - no process is required to retain checkpoint or wake state;
 - Teams, host/API, and cron wake cold compute through their native owner paths;
@@ -1296,9 +1325,9 @@ Continuity then lands:
 5. **Replacement and handoff:** final clean-shutdown capture, exact publication
    receipt, runtime-generation fencing, restore dependency closure, and
    restore-gated readiness on fresh compute.
-6. **Hibernate and wake:** atomic wake intent, hibernation handoff, Lobster
-   retained Teams/API ingress, cron wake and reconciliation, and scale-from-zero
-   conformance.
+6. **Hibernate and wake:** the Elastic Host Lifecycle v1 operations, atomic
+   wake registration and sleep authorization, Lobster retained Teams/API
+   ingress, cron wake and reconciliation, and scale-from-zero conformance.
 7. **Migration and deletion:** shadow comparison, authority cutover, removal of
    Lobster path-copy/restore ordering and private lifecycle signals, and
    documented rollback expiry.

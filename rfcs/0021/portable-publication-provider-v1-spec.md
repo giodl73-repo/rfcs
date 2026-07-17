@@ -32,6 +32,9 @@ This specification does not define:
 - Hosted Integration bundles, reverse carriers, or product-specific extensions;
 - Elastic wake and retained-ingress semantics.
 
+Those semantics and the minimal host activation operation are defined by the
+[Elastic Host Lifecycle v1 Specification](elastic-host-lifecycle-v1-spec.md).
+
 Optional canonical Readiness, Hosting Profile, and Hosted Integration
 composition is defined by the
 [State CAPE Readiness and Hosting Composition v1 Addendum](readiness-hosting-composition-v1-addendum-spec.md).

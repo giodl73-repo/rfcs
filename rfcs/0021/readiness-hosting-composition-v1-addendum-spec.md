@@ -120,6 +120,12 @@ The level criteria are monotonic. `ContinuityPortable=True` requires
 `ContinuityArchived=True`; `ContinuityElastic=True` requires both lower
 conditions to be true.
 
+Elastic lifecycle authority and activation are defined by the
+[Elastic Host Lifecycle v1 Specification](elastic-host-lifecycle-v1-spec.md).
+Readiness projects its results but does not invoke `PrepareHibernate`,
+`EnsureRuntimeReady`, revoke sleep, provision compute, or deliver retained
+work.
+
 Stable non-true reasons include:
 
 | Condition | Stable reasons |
@@ -284,6 +290,8 @@ Status includes:
 - provider plugin, ID, contract version, and compatibility generation;
 - unresolved dependency-owner criteria;
 - earliest semantic wake deadline;
+- accepted wake-registration, sleep-authorization, and active wake-request
+  identities;
 - selected Hosting Profile and selection source; and
 - relevant host owner/bundle generations as diagnostic metadata.
 

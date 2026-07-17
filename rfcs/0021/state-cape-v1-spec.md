@@ -29,7 +29,10 @@ This specification does not define:
 - a global transaction or aggregate mutation watermark;
 - implementation module boundaries; or
 - the Portable publication provider API, which is defined by the
-  [Portable Publication Provider v1 Specification](portable-publication-provider-v1-spec.md).
+  [Portable Publication Provider v1 Specification](portable-publication-provider-v1-spec.md);
+  or
+- the Elastic host lifecycle API, which is defined by the
+  [Elastic Host Lifecycle v1 Specification](elastic-host-lifecycle-v1-spec.md).
 
 Optional canonical Readiness, Hosting Profile, and Hosted Integration
 composition is defined by the
@@ -116,7 +119,7 @@ From Portable onward:
 At Elastic:
 
 - correctness must not depend on a resident OpenClaw process;
-- wake intent, deadlines, retained ingress, and retry state must survive absent
+- wake registration, deadlines, retained ingress, and retry state must survive absent
   compute;
 - newly queued work must revoke sleep authorization; and
 - retained work must be delivered only after readiness to the current
@@ -362,6 +365,10 @@ Portable runtime, which restores and becomes ready before work delivery.
 Elastic v1 does not make a Channel wake-capable unless that Channel owner proves
 the retained-ingress contract.
 
+The normative minimal host operations, wake-registration schema, sleep
+revocation rules, and activation ordering are defined by the
+[Elastic Host Lifecycle v1 Specification](elastic-host-lifecycle-v1-spec.md).
+
 ### Hibernation
 
 Elastic hibernation must:
@@ -370,7 +377,8 @@ Elastic hibernation must:
 2. durably retain or reject new ingress before sleep authorization;
 3. close admission and drain or fence active work;
 4. complete the Portable final-handoff requirements;
-5. atomically accept the final recovery point and wake intent;
+5. atomically accept the final recovery point, wake registration, and sleep
+   authorization;
 6. record the earliest semantic wake deadline and reason class;
 7. authorize destruction only while sleep authorization remains valid; and
 8. leave no required checkpoint, deadline, ingress, or retry state solely in
@@ -406,6 +414,10 @@ The host may apply cold-start lead time but must not reinterpret cron semantics.
 After restore, OpenClaw must reconcile missed schedules and durably queue
 policy-allowed catch-up before admission opens.
 
+The accepted registration is bound to the final recovery point and scheduler
+generation. A running deadline projection is advisory; only the final
+registration is authoritative while compute is absent.
+
 ### Wake and delivery order
 
 Elastic wake follows this order:
@@ -413,14 +425,14 @@ Elastic wake follows this order:
 ```text
 retained ingress or semantic deadline becomes due
   -> revoke sleep authorization
-  -> coalesce provisioning
-  -> allocate a new runtime generation
-  -> retrieve the accepted recovery point
-  -> restore and validate dependency closure
-  -> reconcile scheduler state
-  -> publish continuity and owner readiness
-  -> open admission
-  -> deliver retained work to the current generation
+  -> EnsureRuntimeReady coalesces provisioning
+     -> allocate a new runtime generation
+     -> retrieve the accepted recovery point
+     -> restore and validate dependency closure
+     -> reconcile scheduler state
+     -> publish continuity and owner readiness
+     -> open admission
+  -> deliver retained work to the returned current generation
 ```
 
 A failed restore keeps ingress retained. Delivery to a stale, unready, or
@@ -430,7 +442,8 @@ quarantined generation fails closed.
 
 Conformance includes every Portable test and additionally proves:
 
-- final recovery-point and wake-intent atomicity;
+- final recovery-point, wake-registration, and sleep-authorization atomicity;
+- same-request `EnsureRuntimeReady` replay and conflicting-request rejection;
 - sleep revocation racing new ingress;
 - successful wake with no resident OpenClaw process;
 - durable Teams, host/API, cron, or other explicitly conforming wake sources;
