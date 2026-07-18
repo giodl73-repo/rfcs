@@ -123,7 +123,10 @@ contract carries:
 - `wakeRegistrationId`: accepted semantic wake snapshot identity;
 - `schedulerGeneration`: OpenClaw scheduler snapshot generation;
 - `wakeRequestId`: idempotent activation request identity;
-- `destinationRuntimeGeneration`: newly granted restore generation.
+- `destinationRuntimeGeneration`: newly granted restore generation; and
+- `readinessGeneration`: OpenClaw-authored identity of the exact completed
+  restore, reconciled scheduler state, required owner readiness, and restored
+  admission authority.
 
 A friendly deployment, container, worker, or user name is never sufficient
 authority. Stale epochs, generations, revisions, recovery points, or operation
@@ -142,7 +145,7 @@ OpenClaw publishes one semantic wake snapshot:
   "recoveryPointId": "recovery-point-42",
   "manifestDigest": "sha256:...",
   "wakeRegistrationId": "wake-registration-42",
-  "schedulerGeneration": "scheduler-19",
+  "schedulerGeneration": "sha256:...",
   "nextRequiredAt": "2026-07-17T03:00:00Z",
   "reasonClass": "cron"
 }
@@ -222,7 +225,7 @@ generation-bound destruction authorization:
   "recoveryPointId": "recovery-point-42",
   "manifestDigest": "sha256:...",
   "wakeRegistrationId": "wake-registration-42",
-  "schedulerGeneration": "scheduler-19",
+  "schedulerGeneration": "sha256:...",
   "sleepAuthorizationId": "sleep-42",
   "sleepAuthorizationRevision": 9,
   "safeToDestroy": true
@@ -310,6 +313,12 @@ locations, cron definitions, or caller-selected recovery points.
 Wake-cause identities must already exist in host authority; callers cannot
 manufacture a reason class to bypass retention or authorization.
 
+`recoveryPointId` is the accepted publication ID. Its immutable publication
+acceptance binds `captureId`, `archiveSha256`, `manifestSha256`, provider
+provenance, and stable provider generation. Destination-local archive,
+materialization, and journal paths are adapter-owned E6d results; they are not
+lifecycle authority and are never supplied by wake callers.
+
 The host authority selects the newest policy-allowed accepted recovery point
 and performs:
 
@@ -324,14 +333,63 @@ revoke sleep authorization
   -> restore OpenClaw scheduler state
   -> reconcile missed and due schedules
   -> durably queue policy-allowed catch-up work
-  -> publish ContinuityRestoreComplete
   -> satisfy required owner readiness
-  -> open Gateway admission
+  -> satisfy generic Gateway readiness
+  -> durably publish ContinuityRestoreComplete
+  -> consume that exact attestation to open Gateway admission
   -> return the ready generation
 ```
 
 Only after the operation returns a ready current generation may wake-cause
 owners deliver retained work.
+
+`ContinuityRestoreComplete` is an OpenClaw-authored durable record:
+
+```json
+{
+  "version": "continuity-restore-complete/v1",
+  "ownerId": "sha256:...",
+  "destinationRuntimeGeneration": "runtime-generation-19",
+  "recoveryPointId": "recovery-point-42",
+  "manifestSha256": "...",
+  "preparationIdentity": "preparation/runtime-generation-19",
+  "restoreIdentity": "restore/runtime-generation-19",
+  "restoreReceiptIdentity": "sha256:...",
+  "committedRecordIdentity": "sha256:...",
+  "planId": "...",
+  "schedulerGeneration": "sha256:...",
+  "nextRequiredAt": "2026-07-17T03:00:00.000Z",
+  "reasonClass": "cron",
+  "requiredOwnerReadinessDigest": "sha256:...",
+  "admissionIdentity": "admission/runtime-generation-19",
+  "readinessGeneration": "sha256:..."
+}
+```
+
+`schedulerGeneration` is the exact canonical E6 wake-descriptor generation
+derived after reconciliation; continuity does not compute a second scheduler
+hash. `nextRequiredAt` is nullable.
+
+`readinessGeneration` is an OpenClaw-authored SHA-256 over the canonical record
+fields other than itself. Canonical JSON recursively sorts object keys, retains
+array order, uses UTF-8 JSON scalar encoding, and emits no insignificant
+whitespace. It is an identity, not a counter. A change to restore, scheduler,
+required-owner readiness, or admission evidence changes the generation.
+
+The record uses the restore journal's private, atomic, durable,
+write-once-or-require-exact discipline. A lost response replays the same
+destination generation and exact record. It does not mint a second readiness
+generation.
+
+`requiredOwnerReadinessDigest` binds the sorted required reconstruction
+obligations and their owner-produced evidence. Missing required evidence is
+false. Generic process health, a container probe, successful restore, or
+Gateway process start is not a substitute for this record.
+
+The record authorizes exact restored admission; it does not independently open
+admission. The destination may open only by consuming matching owner,
+destination-generation, restore-receipt, admission, and readiness identities.
+`EnsureRuntimeReady` returns success only after that consumption succeeds.
 
 The successful logical result contains:
 
@@ -344,12 +402,16 @@ The successful logical result contains:
   "wakeRequestId": "wake-93",
   "destinationRuntimeGeneration": "runtime-generation-19",
   "recoveryPointId": "recovery-point-42",
-  "readinessGeneration": "readiness-19"
+  "readinessGeneration": "sha256:..."
 }
 ```
 
 The result does not mean every retained activity was delivered. Each owner
 advances its own delivery and acknowledgement state.
+
+The result's `readinessGeneration` must equal the consumed
+`ContinuityRestoreComplete.readinessGeneration`. The host must not derive or
+synthesize it.
 
 ## Idempotency and coalescing
 
@@ -374,7 +436,9 @@ The host alarm is only a provisioning trigger. After restore, OpenClaw:
 4. suppresses duplicates using scheduler-owned identities;
 5. durably queues accepted catch-up work;
 6. publishes a new scheduler generation and next semantic deadline;
-7. completes `ContinuityRestoreComplete`.
+7. satisfies required owner readiness and generic Gateway readiness;
+8. durably publishes `ContinuityRestoreComplete`; and
+9. opens admission only by consuming that exact attestation.
 
 Gateway admission remains closed until reconciliation completes. The host must
 not directly invoke restored cron jobs to reduce cold-start latency.
@@ -397,6 +461,8 @@ The read-only snapshot exposes bounded, redacted state:
   "recoveryPointAgeMs": 42000,
   "sleepAuthorization": "consumed",
   "safeToDestroy": true,
+  "schedulerGeneration": "sha256:...",
+  "readinessGeneration": null,
   "nextRequiredAt": "2026-07-17T03:00:00Z",
   "hostWakeAt": "2026-07-17T02:58:00Z",
   "retainedWakeCauseCount": 0,
@@ -449,6 +515,22 @@ ContinuityLifecycleStatusUnknown
 Failures state whether retry is safe for the same operation identity. They do
 not expose credentials, artifact locations, Teams messages, prompts, cron
 definitions, or raw provider errors.
+
+| Failure class | V1 disposition |
+| --- | --- |
+| `ContinuitySleepRevoked` | Retry or join the current wake request. |
+| `ContinuityWakeAuthorityUnavailable` | Hold; retry the same request. |
+| `ContinuityWakeRequestConflict` | Quarantine the conflicting request identity. |
+| `ContinuityProvisioningFailed` | Hold until authority proves the granted generation lost authority or terminated. |
+| `ContinuityGenerationAuthorityConflict` | Quarantine. |
+| `ContinuityRestoreFailed` | Use the restore result's exact retry-same-restore or quarantine disposition. |
+| `ContinuitySchedulerReconciliationFailed` | Hold the same destination generation; admission remains closed. |
+| `ContinuityReadinessFailed` | Hold the same destination generation; admission remains closed. |
+| `ContinuityLifecycleQuarantined` | Quarantine. |
+| `ContinuityLifecycleStatusUnknown` | Hold; unknown is not success. |
+
+Hibernate and retained-delivery failures retain their owner-specific retry and
+terminal semantics; they cannot authorize destination admission.
 
 Retained work remains retained when provisioning, restore, reconciliation, or
 readiness fails. A caller-visible timeout does not acknowledge or discard it.

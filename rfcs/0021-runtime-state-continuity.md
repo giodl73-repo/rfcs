@@ -959,8 +959,13 @@ Restore is explicit and ordered:
 6. run component validation/migrations;
 7. commit the exact restore receipt into the held owner generation;
 8. admit exactly one matching restored Gateway startup with admission closed;
-9. report the restored checkpoint and component provenance through status; and
-10. evaluate readiness before accepting work.
+9. force and await scheduler startup reconciliation and durable catch-up
+   queuing;
+10. evaluate required owner and generic Gateway readiness;
+11. durably publish `ContinuityRestoreComplete` and consume that exact record
+    to open restored admission; and
+12. report the restored checkpoint, component provenance, scheduler generation,
+    and readiness generation through status.
 
 Restore does not require a cross-platform atomic directory rename. While the
 launcher hold blocks startup, the restore owner may atomically claim absent
@@ -1156,7 +1161,10 @@ Readiness has two continuity uses:
 
 1. **restored-startup gate**: whenever startup selects a recovery point,
    readiness remains closed until required artifacts, compatibility,
-   dependency bindings, identity, and scheduler reconciliation validate; and
+   dependency bindings, identity, and scheduler reconciliation validate.
+   OpenClaw durably publishes one exact `ContinuityRestoreComplete` attestation
+   and restored admission consumes that record before work opens. Generic
+   process health, Gateway start, or restore success alone is insufficient; and
 2. **Hosting Profile posture**: continuity publishes trusted CAPE-level
    criteria that a profile may require or keep advisory during ordinary
    running.
