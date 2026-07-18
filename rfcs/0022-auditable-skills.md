@@ -3,7 +3,7 @@ title: Auditable Skills
 authors:
   - Gio Lodi
 created: 2026-07-13
-last_updated: 2026-07-16
+last_updated: 2026-07-17
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
@@ -153,14 +153,15 @@ harness facts. Neither substitutes for the other.
 
 ## Proposal
 
-The implementer-facing v1 core contract is captured in
+The implementer-facing receipt-core contract and later extension profiles are
+captured in
 [`0022/auditable-skills-v1-spec.md`](0022/auditable-skills-v1-spec.md). The
-runner-neutral composition boundary and optional Lobster-to-core migration are
-captured separately in
+preserved runner research is captured separately as a non-Round-1 addendum in
 [`0022/orchestration-runner-v1-spec.md`](0022/orchestration-runner-v1-spec.md).
 This RFC remains the design rationale and rollout plan; the sidecar specs are
-the concise metadata, receipt, invocation, accounting, runner, and conformance
-references.
+the concise receipt contract and optional later metadata, invocation,
+accounting, and runner references. An implementation can conform to Receipt
+Core without implementing any later profile.
 
 ### Three ownership layers
 
@@ -570,9 +571,12 @@ openclaw receipts --count --type invoice.paid
 openclaw receipts --id <receipt-id>
 ```
 
-The CLI, Gateway API, plugins, and workflow runners should call the same
-storage-neutral `get`, `list`, and `count` boundary. None should open SQLite or
-scan session databases directly.
+The producer and query contracts are portable: CLI, Gateway API, plugins, and
+future workflow consumers should preserve the same `get`, `list`, and `count`
+semantics. The Round 1 OpenClaw profile may implement those operations directly
+against its local SQLite module; it does not need a speculative provider
+interface before a second store exists. Consumers must not scan session or
+trajectory files as a substitute for the canonical receipt store.
 
 ### From a run to a durable work history
 
@@ -617,7 +621,8 @@ system, but a production implementation still needs ordinary data-store
 operations:
 
 - explicit retention and bounded cleanup independent of session rotation;
-- schema-version checks and atomic migrations;
+- schema-version checks and transactional schema creation or migration before
+  accepting writes;
 - health diagnostics for an inaccessible, locked, corrupt, or newer database;
 - backup and export through consistent snapshots rather than live file copies;
 - access control and redaction appropriate for evidence such as authorization
@@ -707,8 +712,9 @@ the receipt boundary on its own merits:
 
 1. **RFC and core receipts.** Review this RFC and sidecars, then land one small
    OpenClaw vertical slice containing trusted tool receipts, the configurable
-   shared store, trajectory references, and storage-neutral `get`, `list`, and
-   `count`. This round has no skill metadata or workflow dependency.
+   shared SQLite store, trajectory references, and portable `get`, `list`, and
+   `count` semantics. This round has no skill metadata or workflow dependency
+   and does not require a provider abstraction.
 2. **Managed invocation and result, if receipts prove useful.** Add optional
    Agent Skills declarations, exact executed-skill identity on the native
    subagent record, parent-run lineage, and one native result only after the
@@ -794,8 +800,8 @@ runtime capabilities, not portable `SKILL.md` metadata.
 - [Agent Skills specification](https://agentskills.io/specification)
 - [OpenTelemetry GenAI token usage conventions](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/gen-ai-metrics.md)
 - [RFC 0016: Claws](https://github.com/openclaw/rfcs/pull/27)
-- [Auditable Skills v1 core specification](0022/auditable-skills-v1-spec.md)
-- [Orchestration runner v1 addendum](0022/orchestration-runner-v1-spec.md)
+- [Auditable Skills Receipt Core and later extension profiles](0022/auditable-skills-v1-spec.md)
+- [Future orchestration runner addendum](0022/orchestration-runner-v1-spec.md)
 
 ## Unresolved questions
 

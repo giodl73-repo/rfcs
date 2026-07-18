@@ -1,11 +1,14 @@
 # Auditable Skills Orchestration Runner v1 Addendum Specification
 
-This document is the implementer-facing orchestration-runner addendum for RFC
-0022. It builds on `auditable-skills-v1-spec.md` and defines how OpenClaw can
-compose auditable managed skill runs without requiring Lobster or binding the
-core contract to any one workflow engine.
+This document preserves the implementer-facing orchestration research for RFC
+0022. It is an optional future addendum for an implementation that chooses to
+claim runner conformance after a concrete consumer exists. It is not part of
+Receipt Core, not a Round 1 requirement, and not a selection of Lobster,
+TaskFlow, or a new OpenClaw workflow engine.
 
-Status: draft addendum, tied to RFC 0022.
+Status: future addendum; non-normative for RFC 0022 Receipt Core. Requirements
+below become normative only for an implementation explicitly claiming this
+runner profile.
 
 ## Scope
 
@@ -15,7 +18,7 @@ This addendum defines:
 - minimum workflow and step identity and lifecycle;
 - managed skill step requests and result envelopes;
 - pause, resume, cancellation, and accounting invariants;
-- a minimal OpenClaw core runner profile;
+- a possible minimal OpenClaw runner profile;
 - a Lobster adapter profile;
 - capability discovery, conformance, and migration.
 
@@ -40,7 +43,7 @@ OpenClaw core owns the execution facts. A runner owns workflow decisions.
 | Tool receipts and session correlation | Workflow-level status |
 | Observed model usage and captured cost | Aggregation and limit decisions |
 
-The shared result envelope lets a core runner, Lobster, or a future plugin
+The shared result envelope could let an OpenClaw runner, Lobster, or a future plugin
 consume the same managed-run facts. A runner must not parse assistant prose to
 manufacture successful outcomes or usage.
 
@@ -50,7 +53,8 @@ manufacture successful outcomes or usage.
 - The baseline direct profile is one current-agent, one-shot native subagent
   run. ACP, visible/thread-bound, and persistent managed sessions require a
   later profile rather than silent fallback.
-- An installation without Lobster may use the core runner profile.
+- An installation without Lobster could implement the runner profile if a
+  concrete consumer justifies it.
 - An installation with Lobster may continue to use Lobster through an adapter.
 - A runner may support capabilities beyond this addendum without changing the
   core result envelope.
@@ -60,7 +64,7 @@ manufacture successful outcomes or usage.
 
 ## Agent-driven sequential profile
 
-The first core composition profile may use the parent OpenClaw agent itself as
+The simplest future composition profile may use the parent OpenClaw agent itself as
 the runner. It requires no new workflow executor:
 
 1. the parent calls managed `sessions_spawn` for one ready skill;
@@ -441,9 +445,9 @@ recorded as a current operator decision.
 OpenClaw core owns managed-run facts referenced by the checkpoint. The runner
 owns the checkpoint and decision to continue.
 
-## Core runner profile
+## Possible OpenClaw runner profile
 
-The recommended first core implementation is deliberately small:
+A possible OpenClaw implementation would be deliberately small:
 
 - validates a static acyclic plan;
 - runs one ready managed skill at a time;
@@ -490,9 +494,10 @@ type SkillWorkflowRunnerSelectionV1 = {
 };
 ```
 
-`core` names the built-in minimal profile. Other ids are implementation- or
-plugin-defined, for example a Lobster adapter id. Selection must fail before
-dispatch when the chosen runner is unavailable or lacks a required capability.
+Runner ids are implementation- or plugin-defined. If OpenClaw later ships the
+sequential profile described here, it should receive a stable explicit id rather
+than assuming an implicit built-in runner. Selection must fail before dispatch
+when the chosen runner is unavailable or lacks a required capability.
 
 Audit output records the selected runner id and version when available. The
 runner id is execution provenance, not part of `SKILL.md`.
@@ -502,10 +507,14 @@ runner must pass every managed step through the same OpenClaw policy boundary;
 selecting a different runner cannot grant a skill, model, tool, credential, or
 sandbox capability.
 
-## Migration plan
+## Conditional migration plan
 
-The migration keeps the existing Lobster proof working while removing Lobster
-as a prerequisite for basic composition.
+This migration is not selected by RFC 0022. It applies only if OpenClaw later
+chooses a durable runner and Lobster or another implementation elects to share
+the same contracts.
+
+If selected, the migration should keep the existing Lobster proof working while
+allowing another runner to consume the same execution facts.
 
 ### Phase 1: extract the shared contracts
 
@@ -517,20 +526,19 @@ Exit criterion: the existing RFC 0022 support workflow passes through the
 adapter without changing its receipts, lineage, or totals. No adapter opens
 SQLite directly.
 
-### Phase 2: add the core sequential runner
+### Phase 2: add a sequential runner, if selected
 
-Implement the core profile over existing managed child runs and TaskFlow/runtime
-state. Support dependencies, exact receipt gates, failure, cancellation, and
-accounting only.
+Implement the selected profile over existing managed child runs and an accepted
+durable state owner. Support dependencies, exact receipt gates, failure,
+cancellation, and accounting only.
 
 Exit criterion: the support workflow runs without Lobster and produces the same
 managed-run records and total spend.
 
 ### Phase 3: make runner selection explicit
 
-Expose runner capability discovery and selection. Route simple plans to the
-core runner. Route plans requiring approvals, structured input, conditions, or
-other advanced features to Lobster when installed.
+Expose runner capability discovery and selection. Route a plan only to an
+explicitly selected available runner whose capabilities satisfy it.
 
 Exit criterion: unavailable capabilities fail validation before any managed
 skill starts.
