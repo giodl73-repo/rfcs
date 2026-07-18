@@ -608,6 +608,11 @@ combination may be sufficient without a separate case-tracking application.
 Integrations can put external record IDs in producer-owned receipt subjects
 without adding a second session-association model to OpenClaw core.
 
+Receipt queries do not infer current case state from a missing outcome. An
+operator can compare facts such as `case.opened` and `case.resolved`, but an
+authoritative unresolved-work queue remains the responsibility of the source
+channel, CRM, or workflow consumer.
+
 The proposal does not define accounts, contacts, assignment queues, SLAs,
 forms, or authoritative customer data. Long-term revisitability also depends
 on explicit retention, backup, and export policy. Those are product and
@@ -759,6 +764,12 @@ than a broad workflow showcase:
 The proof succeeds only if full producer `data` exists in the receipt store,
 not in the trajectory reference, and failed or malformed tool results create no
 success evidence.
+
+The fork proof exercised this boundary with three email-thread sessions and
+nine receipts. Fresh processes counted three `case.opened` and two
+`case.resolved` outcomes, recovered inventory tracking evidence by session,
+and retrieved a refund authorization code by receipt ID. It did not turn the
+remaining opened case into authoritative queue state.
 
 ## Round 1 acceptance criteria
 

@@ -731,4 +731,6 @@ An operator can later filter `case.resolved`, count resolutions by skill digest,
 inspect a resolution code in receipt data, and reopen the originating session.
 No separate CRM schema is required for that retained operational history. A
 producer may place an external case id in `subject` when a separate system owns
-the authoritative case.
+the authoritative case. Receipt Core does not infer an unresolved case or
+current lifecycle state from the absence of `case.resolved`; a source channel,
+CRM, or workflow consumer owns that projection.
