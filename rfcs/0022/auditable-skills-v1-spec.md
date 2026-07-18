@@ -7,6 +7,11 @@ profiles without making them prerequisites for receipt conformance.
 
 Status: draft, tied to RFC 0022. Receipt Core is the only Round 1 profile.
 
+Receipt Core standardizes one ownership boundary: a trusted tool states a
+business outcome, and the harness records the execution context it directly
+observes. The profile is independently useful and does not require a skill
+declaration, managed invocation, usage record, budget, or runner.
+
 ## Scope
 
 The **Receipt Core** profile defines:
@@ -65,6 +70,12 @@ Auditable Skills v1 separates three authorities:
 
 An implementation must not treat package metadata as proof that an outcome
 occurred. It must not treat metadata as a permission grant.
+
+For Receipt Core, the receipt producer is the trusted tool boundary, not the
+skill package or model. The producer owns only `type`, optional `version`,
+optional `subject`, and optional `data`. The harness owns receipt identity,
+time, agent, session, run, tool, and tool-call correlation. Neither side may
+assert the other's fields as authoritative.
 
 ## Compatibility and evolution
 
@@ -703,6 +714,11 @@ A conforming Receipt Core implementation should prove at least:
 12. The maximum admitted receipts from one result are committed as one bounded
     batch; overflow is ignored with an observable diagnostic and cannot extend
     lock wait per omitted receipt.
+13. After the recording process exits, fresh query processes can count exact
+    outcome types across at least three session keys and two agents, resolve a
+    full evidence payload by receipt ID, and return the originating session.
+    The query layer does not infer authoritative unresolved state from a
+    missing outcome.
 
 ### Later extension test vectors
 
@@ -722,13 +738,15 @@ An implementation claiming a later profile should additionally prove:
 ## Example: support work thread
 
 An email channel maps a provider conversation to a stable OpenClaw session. A
-support skill declares `customer.verified` and `case.resolved`. The verification
-and case tools emit those receipts only after their respective operations
-succeed. OpenClaw records the exact skill on the native child run and retains
-its model usage, cost, and originating session.
+verification tool records `customer.verified` only after verification succeeds,
+and a case tool records `case.resolved` only after resolution succeeds. Receipt
+Core retains each outcome with its originating session and run. If an
+implementation later claims Managed Skill Identity and Run Accounting, it may
+also correlate the exact skill revision and observed run usage without changing
+the receipt.
 
-An operator can later filter `case.resolved`, count resolutions by skill digest,
-inspect a resolution code in receipt data, and reopen the originating session.
+An operator can later filter `case.resolved`, count resolutions, inspect a
+resolution code in receipt data, and reopen the originating session.
 No separate CRM schema is required for that retained operational history. A
 producer may place an external case id in `subject` when a separate system owns
 the authoritative case. Receipt Core does not infer an unresolved case or

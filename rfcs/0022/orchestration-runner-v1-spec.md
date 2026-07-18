@@ -31,6 +31,24 @@ This addendum does not define:
 - a requirement to install Lobster;
 - replacement of advanced Lobster pipeline behavior.
 
+## Relationship to Receipt Core
+
+This addendum is a possible consumer of Receipt Core, not a prerequisite for
+it. Receipt recording, retrieval, counting, and session correlation must remain
+useful when no runner is installed or selected. A runner consumes observed
+receipts through the canonical query boundary; it does not create a parallel
+receipt ledger or reinterpret a missing receipt as an inferred success.
+
+The product sequence is therefore strict:
+
+1. decide whether typed trusted-tool outcomes belong in OpenClaw core;
+2. adopt Receipt Core independently, if that decision is positive;
+3. add managed identity and run accounting only if their consumers justify
+   them; and
+4. select a runner profile only for a concrete workflow consumer.
+
+Rejecting or deferring this addendum must not block Receipt Core adoption.
+
 ## Design invariant
 
 OpenClaw core owns the execution facts. A runner owns workflow decisions.
@@ -596,6 +614,9 @@ A conforming runner must prove:
     claiming durable workflow identity or automatic restart recovery.
 21. A TaskFlow-backed runner dispatches through the host-managed skill boundary
     and never duplicates `sessions_spawn` admission logic.
+22. Installing, selecting, disabling, or removing a runner does not change the
+    canonical Receipt Core records or their ordinary get, list, and count
+    semantics.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one

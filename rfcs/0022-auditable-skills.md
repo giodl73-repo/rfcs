@@ -3,7 +3,7 @@ title: Auditable Skills
 authors:
   - Gio Lodi
 created: 2026-07-13
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/6
@@ -21,6 +21,11 @@ later get, list, or count those outcomes without searching transcript prose.
 Managed skill identity, run usage, budgets, and orchestration are later
 consumers of that receipt boundary. They are not prerequisites for the first
 useful OpenClaw product.
+
+The first decision is intentionally narrow: should a durable, typed outcome
+from a successful trusted tool be a core OpenClaw resource that authorized
+operators and later agents can retrieve and count? If the answer is no, none of
+the later metadata, accounting, budget, or orchestration work is required.
 
 ## Motivation
 
@@ -41,6 +46,11 @@ A successful tool call may emit typed evidence such as `inventory.sent`,
 `payment.authorized`, or `invoice.paid`. OpenClaw records that evidence once in
 a configurable receipt store shared by the Gateway's agents and preserves the
 native session and run correlation needed to revisit the work.
+
+OpenClaw is the natural owner of that execution envelope because it already
+observes the sanitized tool result, agent, session, run, tool, tool call, and
+time. The producer states the business fact; OpenClaw records where and when it
+happened without interpreting the producer's business schema.
 
 The RFC also explores a small portable vocabulary for what a skill may
 accomplish, which other skills it may use, and whether its work needs an
@@ -320,6 +330,25 @@ type SkillReceipt = {
   data?: Record<string, unknown>;
 };
 ```
+
+A trusted tool can attach that receipt to its ordinary successful result:
+
+```ts
+return {
+  content: [{ type: "text", text: "Refund approved." }],
+  details: {},
+  receipts: [
+    {
+      type: "refund.approved",
+      subject: { type: "invoice", id: "INV-2048" },
+      data: { authorizationCode: "RFND-AUTH-7721" },
+    },
+  ],
+};
+```
+
+The identifiers in this example are deterministic fixture data, not production
+payment evidence.
 
 `type` is the primary business filter and should be namespaced enough to remain
 meaningful outside one tool, such as `payment.authorized` rather than
@@ -704,7 +733,7 @@ workflow slices remain POC evidence, not a required landing stack:
 
 | Evidence | What it proved |
 | --- | --- |
-| [OpenClaw #97](https://github.com/giodl73-repo/openclaw/pull/97) | Shared durable receipts, trajectory references, exact query, and count. |
+| [OpenClaw #97](https://github.com/giodl73-repo/openclaw/pull/97) | Shared durable receipts, trajectory references, exact query and count, plus fresh-process support-thread evidence across two agents. |
 | [OpenClaw #98](https://github.com/giodl73-repo/openclaw/pull/98) | Portable declarations, exact skill digest, and native managed child-run identity. |
 | [OpenClaw #100](https://github.com/giodl73-repo/openclaw/pull/100) | One runner-neutral result joining exact native status and durable receipts. |
 | [OpenClaw #109](https://github.com/giodl73-repo/openclaw/pull/109) | Cumulative retry-aware usage retained on the exact native run and exposed by the managed result. |
@@ -816,6 +845,9 @@ runtime capabilities, not portable `SKILL.md` metadata.
 
 ## Unresolved questions
 
+- Should a typed outcome from a successful trusted tool become a core OpenClaw
+  resource? A negative answer stops the proposal before managed skill identity,
+  accounting, budgets, or orchestration.
 - Should `outcomes`, `uses-skills`, and `isolation` be proposed as Agent Skills
   community vocabulary after implementation proof, or incubate under temporary
   namespaced aliases first?
