@@ -9,7 +9,9 @@ The [State CAPE v1 Specification](state-cape-v1-spec.md) defines the Elastic
 guarantee. The
 [Portable Publication Provider v1 Specification](portable-publication-provider-v1-spec.md)
 defines immutable publication and retrieval. This sidecar defines the host
-orchestration boundary above those contracts.
+orchestration boundary above those contracts. The
+[Restored Startup v2 Specification](restored-startup-v2-spec.md) defines the
+private adapter-to-Gateway completion and admission transaction.
 
 Status: draft, tied to RFC 0021.
 
@@ -123,7 +125,9 @@ contract carries:
 - `wakeRegistrationId`: accepted semantic wake snapshot identity;
 - `schedulerGeneration`: OpenClaw scheduler snapshot generation;
 - `wakeRequestId`: idempotent activation request identity;
-- `destinationRuntimeGeneration`: newly granted restore generation; and
+- `destinationRuntimeGeneration`: newly granted restore generation;
+- `lifecycleOwnerGeneration`: existing lifecycle authority that authorized
+  destination preparation and restore; and
 - `readinessGeneration`: OpenClaw-authored identity of the exact completed
   restore, reconciled scheduler state, required owner readiness, and restored
   admission authority.
@@ -347,9 +351,10 @@ owners deliver retained work.
 
 ```json
 {
-  "version": "continuity-restore-complete/v1",
+  "version": "continuity-restore-complete/v2",
   "ownerId": "sha256:...",
   "destinationRuntimeGeneration": "runtime-generation-19",
+  "lifecycleOwnerGeneration": "continuity-lifecycle-1",
   "recoveryPointId": "recovery-point-42",
   "manifestSha256": "...",
   "preparationIdentity": "preparation/runtime-generation-19",
@@ -388,8 +393,12 @@ Gateway process start is not a substitute for this record.
 
 The record authorizes exact restored admission; it does not independently open
 admission. The destination may open only by consuming matching owner,
-destination-generation, restore-receipt, admission, and readiness identities.
+destination-generation, lifecycle-owner-generation, restore-receipt,
+admission, and readiness identities.
 `EnsureRuntimeReady` returns success only after that consumption succeeds.
+The descriptor, result, durable record, failure dispositions, and replay rules
+are normative in the
+[Restored Startup v2 Specification](restored-startup-v2-spec.md).
 
 The successful logical result contains:
 
@@ -523,9 +532,9 @@ definitions, or raw provider errors.
 | `ContinuityWakeRequestConflict` | Quarantine the conflicting request identity. |
 | `ContinuityProvisioningFailed` | Hold until authority proves the granted generation lost authority or terminated. |
 | `ContinuityGenerationAuthorityConflict` | Quarantine. |
-| `ContinuityRestoreFailed` | Use the restore result's exact retry-same-restore or quarantine disposition. |
-| `ContinuitySchedulerReconciliationFailed` | Hold the same destination generation; admission remains closed. |
-| `ContinuityReadinessFailed` | Hold the same destination generation; admission remains closed. |
+| `ContinuityRestoreFailed` | Preserve the restored-startup result's exact `retry-same-incarnation`, `hold`, or `quarantine` disposition. |
+| `ContinuitySchedulerReconciliationFailed` | Map `SchedulerReconciliationFailed`; preserve its exact disposition and keep admission closed. |
+| `ContinuityReadinessFailed` | Map `ContinuityReadinessFailed`; preserve its exact disposition and keep admission closed. |
 | `ContinuityLifecycleQuarantined` | Quarantine. |
 | `ContinuityLifecycleStatusUnknown` | Hold; unknown is not success. |
 
@@ -607,8 +616,12 @@ Elastic Host Lifecycle v1 conformance must prove:
 - stale epoch, source generation, lifecycle revision, wake request, and late
   provisioning results fail closed;
 - restore and scheduler reconciliation complete before admission;
+- v2 descriptor, result, durable completion, and exact admission contracts pass
+  Restored Startup v2 conformance;
 - retained work remains durable across provisioning, restore, readiness, and
   host-process restart failures;
+- a crash after retained restored-ready state but before host completion reuses
+  the same worker and readiness generation with one preparation and restore;
 - quarantine blocks destruction, generation grant, delivery, and implicit
   reset;
 - Status and Doctor expose bounded reason codes and operator actions;

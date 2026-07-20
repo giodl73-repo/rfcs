@@ -337,6 +337,10 @@ Readiness remains closed through:
 
 A Hosting Profile cannot weaken this restored-startup gate.
 
+The private restored-startup descriptor, OpenClaw-authored durable completion
+record, structured result, and exact admission transaction are defined by the
+[Restored Startup v2 Specification](restored-startup-v2-spec.md).
+
 ### Portable conformance
 
 Conformance includes every Archived test and additionally proves:

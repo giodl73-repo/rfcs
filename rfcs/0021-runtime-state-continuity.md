@@ -3,7 +3,7 @@ title: Runtime State Continuity
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-15
+last_updated: 2026-07-20
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/5
@@ -652,6 +652,9 @@ The normative level requirements and conformance rules are defined in the
 The normative Elastic hibernation, wake-registration, and host activation
 contract is defined in the
 [Elastic Host Lifecycle v1 Specification](0021/elastic-host-lifecycle-v1-spec.md).
+The private restored-startup descriptor, durable completion record, structured
+result, and exact admission transaction are defined in the
+[Restored Startup v2 Specification](0021/restored-startup-v2-spec.md).
 Optional composition with canonical Readiness, Hosting Profiles, and Hosted
 Integration owner evidence is defined in the
 [State CAPE Readiness and Hosting Composition v1 Addendum](0021/readiness-hosting-composition-v1-addendum-spec.md).
@@ -974,6 +977,14 @@ assemble directly behind an identity-bound incomplete marker, and repair only
 partial output proven by the same journal and restore identity. Existing,
 unmarked, or foreign targets fail closed. This is atomic ownership, not atomic
 visibility; the lifecycle hold supplies the visibility boundary.
+
+The exact adapter-to-Gateway startup contract is defined in the
+[Restored Startup v2 Specification](0021/restored-startup-v2-spec.md).
+It keeps `destinationRuntimeGeneration` independent from
+`lifecycleOwnerGeneration`, requires OpenClaw to author
+`continuity-restore-complete/v2`, and opens admission only by consuming that
+exact record. A successful restore, running process, or healthy container is
+not sufficient.
 
 Portable restore validates the complete dependency closure, not only artifact
 presence:
@@ -1397,13 +1408,12 @@ owner.
 
 ## Unresolved questions
 
-- What is the complete current inventory of durable and reconstructable
-  OpenClaw state?
-- What exact operation names should extend `gateway.suspend.*`?
-- Which snapshot manifest fields need native source identity and compatibility
-  data?
 - What is the minimal local-only durability guarantee for Docker volumes?
 - Do any restore failures permit an explicit operator-approved clean start
   after every compatible checkpoint fails?
 - Which recovery-point details may be redacted from unauthenticated status
   callers while preserving a useful host probe?
+- Should the private restored-startup v2 contract remain host-adapter internal,
+  or should a later version expose a supported launcher API?
+- Which owner approves the sticky config, plugin manifest, Plugin SDK,
+  managed-publication CLI, and restored-admission surfaces for promotion?
