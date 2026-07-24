@@ -3,7 +3,7 @@ title: Hosted Owner Bindings and Managed Dispatch
 authors:
   - Gio Lodi
 created: 2026-07-10
-last_updated: 2026-07-15
+last_updated: 2026-07-24
 status: draft
 issue:
 rfc_pr: https://github.com/giodl73-repo/rfcs/pull/2
@@ -108,6 +108,25 @@ some of those resources:
 Most of these needs already have a canonical OpenClaw surface. The missing
 piece is not one universal host protocol. It is a small set of owner-local
 binding seams plus one optional physical dispatcher.
+
+The implementer-facing v1 contracts are captured in sidecar specifications:
+
+- [`0020/host-integration-bundle-v1-spec.md`](0020/host-integration-bundle-v1-spec.md)
+  defines cell-local bundle registration, typed contribution references,
+  snapshots, generations, and diagnostic evidence.
+- [`0020/credential-slot-v1-spec.md`](0020/credential-slot-v1-spec.md) defines
+  exact origin-bound header credential placement.
+- [`0020/provider-request-traffic-policy-v1-spec.md`](0020/provider-request-traffic-policy-v1-spec.md)
+  defines deterministic policy matching and authority intersection.
+- [`0020/hosted-provider-dispatch-v1-spec.md`](0020/hosted-provider-dispatch-v1-spec.md)
+  defines bounded one-hop hosted dispatch and the optional reverse carrier.
+- [`0020/host-integration-readiness-v1-spec.md`](0020/host-integration-readiness-v1-spec.md)
+  defines how owner activation evidence composes with canonical readiness
+  conditions and optional Hosting Profiles.
+
+This RFC remains the design rationale, ownership model, and migration plan. The
+sidecars are the concise schema, lifecycle, failure, and conformance references
+for OpenClaw owners and external host-plugin implementers.
 
 ## Deployment and Tenant Isolation
 
@@ -533,17 +552,39 @@ OpenClaw's existing plugin surfaces:
 
 ```jsonc
 {
+  "version": "host-integration-bundle/v1",
   "id": "example/managed-host",
-  "version": "1.0.0",
-  "contracts": {
-    "trafficPolicies": ["example/managed-egress"],
-    "credentialSlotResolvers": ["example/provider-token"],
-    "providerRequestDispatchers": ["example/managed-dispatch"]
-  }
+  "bundleVersion": "1.0.0",
+  "contributions": [
+    {
+      "owner": "provider-request",
+      "kind": "credential-slot-resolver",
+      "id": "example/provider-token",
+      "version": "credential-slot-resolver/v1",
+      "required": true,
+      "readinessCriteria": ["plugin.example-host.provider-credentials"]
+    },
+    {
+      "owner": "provider-request",
+      "kind": "provider-request-traffic-policy",
+      "id": "example/managed-egress",
+      "version": "provider-request-traffic-policy/v1",
+      "required": true,
+      "readinessCriteria": ["plugin.example-host.provider-policy"]
+    },
+    {
+      "owner": "provider-request",
+      "kind": "provider-request-dispatcher",
+      "id": "example/reverse-provider",
+      "version": "provider-request-dispatcher/v1",
+      "required": true,
+      "readinessCriteria": ["plugin.example-host.provider-dispatch"]
+    }
+  ]
 }
 ```
 
-The exact manifest syntax is not normative.
+The exact v1 shape and validation rules are defined by the bundle sidecar.
 
 The normative rules are:
 
@@ -577,6 +618,11 @@ runtime bundle, credential registry, or activation transaction.
 Future SecretRef, publication, or telemetry implementations may register in
 the same package without sharing the provider-request interface.
 
+`provider-request` is the fixed non-semantic plumbing namespace for exact
+credential placement, traffic-policy intersection, and physical dispatch. It
+does not own provider, Channel, web-search, mail, identity, response, or replay
+semantics and is not a universal provider-adapter registry.
+
 Installing and selecting the same external host plugin in many cells creates
 independent bundle
 snapshots and generations. It does not create a fleet-global activation or
@@ -590,9 +636,9 @@ For each owner scope:
 bundle registers implementation
   -> owner config selects typed ID
   -> owner prepares immutable binding
-  -> dependencies become ready
   -> owner activates one authoritative generation
-  -> owner publishes readiness evidence
+  -> owner publishes an immutable activation snapshot
+  -> canonical readiness evaluates selected criteria
 ```
 
 There is no cross-owner distributed activation transaction. Hosting Profiles
@@ -604,6 +650,7 @@ Remote operations carry:
 
 - **owner generation**, identifying authoritative owner configuration;
 - **host bundle generation**, identifying the admitted implementation set; and
+- **traffic-policy generation**, identifying the effective route authority;
 - **binding or carrier incarnation**, identifying the current live route.
 
 A newer owner generation supersedes the old binding before side effects. A new
@@ -617,26 +664,18 @@ a provider side effect or make replay safe.
 
 ### Readiness, Status, and Doctor
 
-This RFC reuses Hosting Profiles.
+This RFC depends on the canonical condition, aggregation, bounded evaluation,
+and projection contract in [RFC 0018 and its readiness v1
+specification](https://github.com/openclaw/rfcs/pull/33). Operators may select
+host-integration criteria directly. [RFC 0023 and its Hosting Profile v1
+specification](https://github.com/openclaw/rfcs/pull/37) may compose those same
+criteria into an opt-in standard or operator profile.
 
-Each owner publishes trusted evidence such as:
-
-```text
-owner and contract version
-desired and resolved implementation
-owner generation
-host bundle generation
-binding incarnation
-required or advisory posture
-desired, effective, and observed state
-configuration and policy provenance
-migration authority
-structured conditions and failure
-last transition
-```
-
-Owner criteria are advisory by default. A named Hosting Profile promotes the
-criteria required for a deployment.
+Each semantic owner publishes an immutable activation snapshot. A core-owned
+criterion adapter converts that snapshot into canonical `True`, `False`, or
+`Unknown` evidence. The bundle manifest, external host, dispatcher, and
+readiness aggregator cannot write owner success or choose whether the
+criterion is required.
 
 Bundle health can explain a shared root cause but cannot override a failed
 owner binding. Readiness remains fast, bounded, and non-mutating. Status and
@@ -818,17 +857,20 @@ reverse carrier and some adopter activations remain future proof points.
 | Fleet and Gateway security | Existing one-cell-per-tenant trust boundary and host-side lifecycle supervision | Capability bindings remain per-cell and do not become a shared multi-tenant Gateway or data plane |
 | Gateway and approval work | Existing canonical Gateway methods/events and native approval consumer behavior | No approval protocol or reverse callback API is needed |
 | Channel endpoint work | Existing owner routes and Gateway authentication | No generic Channel ingress protocol is needed |
-| External CAPI proof and Substrate | External-plugin request preparation, exact token slots, policy intersection, and local/hosted dispatcher fixtures | Product-specific provider semantics stay out of OpenClaw core and out of the dispatcher |
-| WebIQ | Completed owner/adopter query, default, filtering, and API-key-slot slices | Web tools use their own owner surface, not a universal adapter registry |
-| Anthropic | Completed owner/adopter request and streamed-response slices with exact key/origin binding | Streaming semantics do not belong in the carrier |
-| ACF | Completed owner and credential-resolver slices for Channel-owned Activity bytes | Tenant/user/Channel identity stays off the dispatch wire |
-| Microsoft Graph mail | Owner complete; adopter activation remains next. Owner proof covers trusted mailbox selection, exact production origins, exact `202`, no replay, and Gateway-authenticated ingress | Side-effect certainty and mailbox authority stay with the owner |
+| Host-integration readiness | [Fork PR 156](https://github.com/giodl73-repo/openclaw/pull/156) resolves bundle-declared canonical selectors against the active readiness catalog, projects them as advisory detail, and fails the selected `openclaw.host-bindings-ready` aggregate when a required contribution is unresolved, stale, `False`, or `Unknown`. Its real endpoint proof exercises `/ready` as `200 -> 503 -> 200` across owner-generation failure and recovery. | The bundle names owner evidence without inventing a second readiness framework; RFC 0018 remains the evaluator and projection contract. |
+| External CAPI proof and Substrate | [Fork PRs 72-73](https://github.com/giodl73-repo/openclaw/pull/73) exercise external-plugin request preparation, exact token slots, policy intersection, and local/hosted dispatcher fixtures | Product-specific provider semantics stay out of OpenClaw core and out of the dispatcher |
+| WebIQ | [Fork PR 74](https://github.com/giodl73-repo/openclaw/pull/74) contains owner/adopter query, default, filtering, and API-key-slot fixtures | Web tools use their own owner surface, not a universal adapter registry |
+| Anthropic | [Fork PR 74](https://github.com/giodl73-repo/openclaw/pull/74) contains owner/adopter request and streamed-response fixtures with exact key/origin binding | Streaming semantics do not belong in the carrier |
+| ACF | [Fork PR 75](https://github.com/giodl73-repo/openclaw/pull/75) contains owner and credential-resolver fixtures for Channel-owned Activity bytes | Tenant/user/Channel identity stays off the dispatch wire |
+| Microsoft Graph mail | [Fork PR 75](https://github.com/giodl73-repo/openclaw/pull/75) completes the owner; adopter activation remains next. Proof covers trusted mailbox selection, exact production origins, exact `202`, no replay, and Gateway-authenticated ingress | Side-effect certainty and mailbox authority stay with the owner |
 
 These slices support the simplified strategy:
 
 - native product surfaces handle most host integration;
 - owner contracts are the reusable abstraction;
 - credential slots can remain narrow;
+- bundle-declared readiness criteria compose through RFC 0018 rather than a
+  host-specific health path;
 - one semantically empty dispatcher contract covers the proven physical
   execution boundaries;
 - hosted activation belongs in paired adoption work; and
