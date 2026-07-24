@@ -1,12 +1,12 @@
-# Auditable Skills Orchestration Runner v1 Addendum Specification
+# Skill Memory Orchestration Runner v1 Addendum Specification
 
 This document preserves the implementer-facing orchestration research for RFC
 0022. It is an optional future addendum for an implementation that chooses to
 claim runner conformance after a concrete consumer exists. It is not part of
-Receipt Core, not a Round 1 requirement, and not a selection of Lobster,
+Skill Memory Core, not a Round 1 requirement, and not a selection of Lobster,
 TaskFlow, or a new OpenClaw workflow engine.
 
-Status: future addendum; non-normative for RFC 0022 Receipt Core. Requirements
+Status: future addendum; non-normative for RFC 0022 Skill Memory Core. Requirements
 below become normative only for an implementation explicitly claiming this
 runner profile.
 
@@ -27,27 +27,27 @@ This addendum does not define:
 - a portable workflow format in `SKILL.md`;
 - a new general expression language;
 - fan-out, joins, loops, or dynamic graph mutation in the core profile;
-- a second receipt, session, task, usage, cost, or policy store;
+- a second memory, session, task, usage, cost, or policy store;
 - a requirement to install Lobster;
 - replacement of advanced Lobster pipeline behavior.
 
-## Relationship to Receipt Core
+## Relationship to Skill Memory Core
 
-This addendum is a possible consumer of Receipt Core, not a prerequisite for
-it. Receipt recording, retrieval, counting, and session correlation must remain
+This addendum is a possible consumer of Skill Memory Core, not a prerequisite for
+it. Memory recording, retrieval, counting, and session correlation must remain
 useful when no runner is installed or selected. A runner consumes observed
-receipts through the canonical query boundary; it does not create a parallel
-receipt ledger or reinterpret a missing receipt as an inferred success.
+memories through the canonical query boundary; it does not create a parallel
+memory ledger or reinterpret a missing memory as an inferred success.
 
 The product sequence is therefore strict:
 
 1. decide whether typed trusted-tool outcomes belong in OpenClaw core;
-2. adopt Receipt Core independently, if that decision is positive;
+2. adopt Skill Memory Core independently, if that decision is positive;
 3. add managed identity and run accounting only if their consumers justify
    them; and
 4. select a runner profile only for a concrete workflow consumer.
 
-Rejecting or deferring this addendum must not block Receipt Core adoption.
+Rejecting or deferring this addendum must not block Skill Memory Core adoption.
 
 ## Design invariant
 
@@ -58,7 +58,7 @@ OpenClaw core owns the execution facts. A runner owns workflow decisions.
 | Skill resolution and effective policy | Step ordering and dependency readiness |
 | Managed child dispatch | Branching and retry policy when supported |
 | Managed descriptor on native child runs | Pause and resume orchestration |
-| Tool receipts and session correlation | Workflow-level status |
+| Tool memories and session correlation | Workflow-level status |
 | Observed model usage and captured cost | Aggregation and limit decisions |
 
 The shared result envelope could let an OpenClaw runner, Lobster, or a future plugin
@@ -87,20 +87,20 @@ the runner. It requires no new workflow executor:
 
 1. the parent calls managed `sessions_spawn` for one ready skill;
 2. native completion identifies the exact child `runId`;
-3. the parent reads `subagents result` and evaluates required receipt types;
+3. the parent reads `subagents result` and evaluates required memory types;
 4. the parent calls `subagents usage` with every accepted completed run ID and
    the caller-owned token ceiling; and
 5. only `within_limit` permits dispatch of the next skill.
 
 The parent may select an allowed model for each direct managed spawn through
 the existing `sessions_spawn` model override. OpenClaw continues to own model
-authorization, skill resolution, isolation, child policy, receipts, and exact
+authorization, skill resolution, isolation, child policy, memories, and exact
 run accounting.
 
-This profile proves useful sequential composition, receipt gating, per-step
+This profile proves useful sequential composition, memory gating, per-step
 model selection, and token limits. It is not a durable workflow claim. It has
 no separate workflow ID, automatic replay, or restart-safe next-step dispatch.
-After an interruption, completed native runs, receipts, and usage remain
+After an interruption, completed native runs, memories, and usage remain
 queryable, but a caller must decide whether to continue. Implementations must
 not present the parent agent's conversational intent as persisted TaskFlow
 state.
@@ -183,7 +183,7 @@ type SkillWorkflowStepV1 = {
   skill: string;
   needs?: string[];
   input?: Record<string, unknown>;
-  requiredReceiptTypes?: string[];
+  requiredMemoryTypes?: string[];
 };
 ```
 
@@ -192,9 +192,9 @@ steps and the graph must be acyclic. The core runner may execute only one ready
 step at a time. It must not infer conditions or data mappings from prose.
 
 `input` is explicit caller-selected structured input. Implementations must
-apply existing secret, size, and policy handling. `requiredReceiptTypes` is an
+apply existing secret, size, and policy handling. `requiredMemoryTypes` is an
 optional completion gate: a completed managed run satisfies it only when its
-recorded receipts contain every exact `data.type`. A declaration in `SKILL.md`
+recorded memories contain every exact memory `type`. A declaration in `SKILL.md`
 does not satisfy this gate.
 
 Example:
@@ -206,11 +206,11 @@ revision: "1"
 steps:
   - id: verify
     skill: verify-customer
-    requiredReceiptTypes: [customer.verified]
+    requiredMemoryTypes: [customer.verified]
   - id: resolve
     skill: resolve-case
     needs: [verify]
-    requiredReceiptTypes: [case.resolved]
+    requiredMemoryTypes: [case.resolved]
   - id: notify
     skill: notify-customer
     needs: [resolve]
@@ -225,7 +225,7 @@ computes or records an immutable plan revision or digest, and binds that value
 and the originating caller and session to the execution. Resume must use the
 same validated plan revision and workflow binding.
 
-Implementations must bound step count, dependency count, input size, receipt
+Implementations must bound step count, dependency count, input size, memory
 gate count, string length, and graph-validation work. Plan validation must not
 perform blocking network I/O on the Gateway event loop.
 
@@ -259,7 +259,7 @@ The core profile uses these transitions:
 - Workflow: `pending -> running -> completed | failed | cancelled`.
 - Step: `pending -> ready -> running -> completed | failed | cancelled`.
 - A downstream step remains `pending` until all `needs` are `completed`.
-- A required receipt mismatch makes the owning step `failed` with a structured
+- A required memory mismatch makes the owning step `failed` with a structured
   reason.
 - When a step fails, the core profile fails the workflow and does not dispatch
   remaining steps.
@@ -277,10 +277,10 @@ completion delivery must be idempotent.
 `completed`, `failed`, `cancelled`, and `skipped` are terminal. The first
 successful atomic terminal transition wins. A cancellation request is not proof
 that the active operation stopped; if completion settles first, the recorded
-state remains `completed` and its receipts and spend remain valid.
+state remains `completed` and its memories and spend remain valid.
 
 Workflow and step status describe orchestration, not transaction rollback. A
-failed or cancelled workflow does not negate receipts or external effects that
+failed or cancelled workflow does not negate memories or external effects that
 already occurred.
 
 ## Managed step request
@@ -295,7 +295,7 @@ type ManagedSkillStepRequestV1 = {
   attempt: number;
   skill: string;
   input?: Record<string, unknown>;
-  requiredReceiptTypes?: string[];
+  requiredMemoryTypes?: string[];
 };
 ```
 
@@ -310,7 +310,7 @@ workflow-to-run association; it does not copy child lifecycle into a second
 invocation record.
 
 OpenClaw derives the parent session from the workflow binding; the runner does
-not supply or redirect it. The requested step, skill, and receipt gates must
+not supply or redirect it. The requested step, skill, and memory gates must
 match the validated plan and current workflow state. In the core profile, input
 must match the validated static plan. An advanced adapter may resolve input only
 through mappings authorized by its validated definition and caller policy.
@@ -321,14 +321,14 @@ runner retry must not silently reuse an earlier failed attempt's invocation id.
 
 Repeating the same key and semantically identical request must return the same
 invocation or settled result without dispatching again. Repeating the key with
-different skill, input, or receipt gates must fail as an idempotency conflict
+different skill, input, or memory gates must fail as an idempotency conflict
 before dispatch. OpenClaw should store a deterministic digest of the normalized
 request under the idempotency key; the runner must not provide that digest as a
 trusted fact.
 
 ## Managed step result
 
-OpenClaw returns a normalized result derived from the core Auditable Skills
+OpenClaw returns a normalized result derived from the core Skill Memory
 records.
 
 ```ts
@@ -342,7 +342,7 @@ type ManagedSkillStepResultV1 = {
   status: "completed" | "failed" | "cancelled";
   accountingScope: "exclusive" | "shared";
   skill: ExecutedSkillIdentityV1;
-  receipts: RecordedSkillReceiptV1[];
+  memories: RecordedSkillMemoryV1[];
   usage?: NormalizedRunUsageV1;
   cost?: RunCostV1;
   error?: {
@@ -352,25 +352,25 @@ type ManagedSkillStepResultV1 = {
 };
 ```
 
-The referenced types come from the Auditable Skills v1 core specification. The
+The referenced types come from the Skill Memory v1 core specification. The
 invocation, run, and skill fields are read from the native managed child
-record. The result must contain observed recorded-receipt envelopes only. It
-must not substitute declared `outcomes`. Usage and cost are omitted when
-unavailable. Every returned receipt must correlate to the result's run. When
+record. The result must contain observed recorded-memory envelopes only. It
+must not substitute declared `remembers`. Usage and cost are omitted when
+unavailable. Every returned memory must correlate to the result's run. When
 direct invocation correlation is present, it must match the managed descriptor,
 but `runId` remains the canonical join.
 
 If the native run remains but its managed-skill association has expired, the
 runner returns `managed_identity_unavailable` instead of a
 `ManagedSkillStepResultV1`. It must not infer skill identity from the task
-prompt, transcript prose, or receipt producer data.
+prompt, transcript prose, or memory producer data.
 
-A trajectory `audit.receipt.recorded` reference is correlation, not the full
-managed-step receipt. OpenClaw resolves it through the configured receipt-store
+A trajectory `skill.memory.remembered` reference is correlation, not the full
+managed-step memory. OpenClaw resolves it through the configured skill-memory
 boundary before constructing this result. If a referenced record is no longer
 available, the result must not reconstruct it from trajectory data, transcript
-text, or model output. A required gate fails with `receipt_unavailable`; a run
-with no matching reference or record fails with `required_receipt_missing`.
+text, or model output. A required gate fails with `memory_unavailable`; a run
+with no matching reference or record fails with `required_memory_missing`.
 This distinction lets operators separate retention or store failure from a
 business outcome that was never observed.
 
@@ -413,7 +413,7 @@ metric with its configured limit. Reaching a limit prevents another dispatch.
 A single active step may exceed a limit because provider usage is normally
 known only after work occurs; v1 does not claim reservation or exact preflight
 enforcement. If the final step exceeds a limit, the workflow fails with a
-structured limit error, but its observed receipts and incurred spend remain
+structured limit error, but its observed memories and incurred spend remain
 valid.
 
 When a configured hard limit depends on a metric that is unavailable after a
@@ -431,8 +431,8 @@ A runner that cannot persist accounting across a pause must reject workflows
 requiring durable resume before dispatch.
 
 The core runner may keep its workflow state in OpenClaw's existing TaskFlow and
-runtime-state primitives. It resolves full receipts through the configured
-receipt-store boundary and must not create another model-usage or receipt
+runtime-state primitives. It resolves full memories through the configured
+Skill Memory store and must not create another model-usage or memory
 ledger.
 
 ## Pause and resume
@@ -471,8 +471,8 @@ A possible OpenClaw implementation would be deliberately small:
 - runs one ready managed skill at a time;
 - uses an isolated managed run when reporting exclusive per-step accounting;
 - waits for the managed run to settle;
-- resolves full receipts through the configured receipt-store boundary and
-  gates completion on exact observed receipt types when configured;
+- resolves full memories through the configured skill-memory boundary and
+  gates completion on exact observed memory types when configured;
 - stops on failure or cancellation;
 - aggregates observed usage and cost once per run;
 - records workflow and step status through existing TaskFlow/runtime state;
@@ -491,7 +491,7 @@ Lobster can implement the same boundary without changing its pipeline language.
 | Workflow id and status | Lobster run and persisted resume identity |
 | Managed step request | Embedded OpenClaw managed-skill action |
 | Managed step result | Structured command result and audit projection |
-| Observed receipts | Full records resolved from the configured receipt store and exposed as result data used by existing conditions |
+| Observed memories | Full records resolved from the configured Skill Memory store and exposed as result data used by existing conditions |
 | Run usage and cost | Native `CostTracker` contribution |
 | Workflow limit | Existing `cost_limit` |
 | Waiting and resume | Existing approval and structured-input state |
@@ -537,17 +537,17 @@ allowing another runner to consume the same execution facts.
 ### Phase 1: extract the shared contracts
 
 Define workflow/step identity plus a read-only managed step result over the
-native subagent, session-usage, trajectory, and receipt-store records. Preserve
+native subagent, session-usage, trajectory, and skill-memory records. Preserve
 current Lobster behavior behind an adapter; add no invocation lifecycle store.
 
 Exit criterion: the existing RFC 0022 support workflow passes through the
-adapter without changing its receipts, lineage, or totals. No adapter opens
+adapter without changing its memories, lineage, or totals. No adapter opens
 SQLite directly.
 
 ### Phase 2: add a sequential runner, if selected
 
 Implement the selected profile over existing managed child runs and an accepted
-durable state owner. Support dependencies, exact receipt gates, failure,
+durable state owner. Support dependencies, exact memory gates, failure,
 cancellation, and accounting only.
 
 Exit criterion: the support workflow runs without Lobster and produces the same
@@ -567,7 +567,7 @@ Build workflow audit output from normalized step results and accepted run ids.
 Keep runner-specific checkpoint details behind the adapter.
 
 Exit criterion: audit consumers can compare core and Lobster executions through
-one workflow/step/run/receipt/usage contract.
+one workflow/step/run/memory/usage contract.
 
 ### Phase 5: remove the hard dependency
 
@@ -576,7 +576,7 @@ Retain Lobster-specific tests for advanced capabilities and accounting
 continuity across its pause/resume paths.
 
 Exit criterion: uninstalling Lobster removes advanced runner capabilities but
-does not remove direct managed invocation, receipts, audit queries, or the core
+does not remove direct managed invocation, memories, audit queries, or the core
 sequential runner.
 
 ## Conformance
@@ -586,7 +586,7 @@ A conforming runner must prove:
 1. It rejects an invalid or cyclic plan before dispatch.
 2. It dispatches a step only after all dependencies complete.
 3. It uses the existing managed invocation boundary.
-4. It gates on observed receipts, not declared outcomes or prose.
+4. It gates on observed Skill Memory entries, not declarations or prose.
 5. It counts each contributing run id once.
 6. It retains incurred spend from failed and retried attempts.
 7. Cancellation prevents new dispatch and reports incurred spend.
@@ -597,16 +597,16 @@ A conforming runner must prove:
 12. Resume, when advertised, survives a process boundary without duplicate
     dispatch or accounting.
 13. A runner cannot redirect a step to a different parent session or change the
-    validated skill or receipt gate.
+    validated skill or memory gate.
 14. Cancellation while waiting invalidates resume authority and ignores a late
     approval or input response.
-15. A limit failure preserves receipts and spend from work that already
+15. A limit failure preserves memories and spend from work that already
     occurred.
 16. Shared run usage is counted once and never reported as exclusive step cost.
-17. A required receipt reference that cannot be resolved fails as
-    `receipt_unavailable` and is not reconstructed from trajectory or prose.
+17. A required memory reference that cannot be resolved fails as
+    `memory_unavailable` and is not reconstructed from trajectory or prose.
 18. An unavailable native run-to-skill association fails as
-    `managed_identity_unavailable` and is not inferred from task or receipt
+    `managed_identity_unavailable` and is not inferred from task or memory
     content.
 19. A runner using a native usage check supplies explicit accepted run IDs and
     does not treat the check as durable workflow state.
@@ -615,10 +615,10 @@ A conforming runner must prove:
 21. A TaskFlow-backed runner dispatches through the host-managed skill boundary
     and never duplicates `sessions_spawn` admission logic.
 22. Installing, selecting, disabling, or removing a runner does not change the
-    canonical Receipt Core records or their ordinary get, list, and count
+    canonical Skill Memory Core records or their ordinary get, list, and count
     semantics.
 
 The same fixture should run against every conforming runner profile. A useful
 baseline is `verify-customer -> resolve-case -> notify-customer`, with one
-accepted receipt path, one missing-receipt failure, one cancellation, and one
+accepted memory path, one missing-memory failure, one cancellation, and one
 accounting assertion.

@@ -1,40 +1,40 @@
-# Auditable Skills Receipt Core and Extension Profiles Specification
+# Skill Memory v1 Core and Extension Profiles Specification
 
-This document is the implementer-facing specification for RFC 0022, Auditable
-Skills. The RFC explains the motivation, ownership model, and rollout plan.
-This file defines a standalone Receipt Core profile and records later extension
-profiles without making them prerequisites for receipt conformance.
+This document is the implementer-facing specification for RFC 0022, Skill
+Memory. The RFC explains the motivation, ownership model, and rollout plan.
+This file defines a standalone Skill Memory Core profile and records later
+extension profiles without making them prerequisites for conformance.
 
-Status: draft, tied to RFC 0022. Receipt Core is the only Round 1 profile.
+Status: draft, tied to RFC 0022. Skill Memory Core is the only Round 1 profile.
 
-Receipt Core standardizes one ownership boundary: a trusted tool states a
+Skill Memory Core standardizes one ownership boundary: a trusted tool states a
 business outcome, and the harness records the execution context it directly
 observes. The profile is independently useful and does not require a skill
 declaration, managed invocation, usage record, budget, or runner.
 
 ## Scope
 
-The **Receipt Core** profile defines:
+The **Skill Memory Core** profile defines:
 
-- typed receipts emitted by successful tools;
+- typed completed-work facts emitted by successful tools;
 - portable record, get, list, and count semantics;
 - a configurable shared local SQLite implementation profile;
 - agent, session, run, tool, and tool-call correlation;
 - minimum query, sanitization, boundedness, and failure behavior;
-- receipt producer and Receipt Core harness conformance.
+- fact producer and Skill Memory Core harness conformance.
 
 This document also records three **later extension profiles**:
 
-- Skill Declaration: optional `SKILL.md` outcomes, child skills, and isolation
+- Skill Declaration: optional `SKILL.md` memory types, child skills, and isolation
   intent;
 - Managed Skill Identity: native child-run identity, exact executed-skill
   identity, and parent lineage;
 - Run Accounting: normalized run usage, captured cost, and a joined audit-run
   projection.
 
-An implementation may claim any later profile only when it also claims Receipt
-Core and satisfies that extension's requirements and test vectors. Receipt Core
-conformance does not require any later profile.
+An implementation may claim any later profile only when it also claims Skill
+Memory Core and satisfies that extension's requirements and test vectors. Skill
+Memory Core conformance does not require any later profile.
 
 This specification does not define:
 
@@ -46,10 +46,12 @@ This specification does not define:
 - provider pricing catalogs or retention policy;
 - tamper-evident logs, signatures, regulatory attestations, or non-repudiation;
 - authoritative budgets inside skill metadata.
+- semantic memory, vector retrieval, workspace memory files, or transcript
+  recollection.
 
 Future workflow-runner research is preserved separately in
 [`orchestration-runner-v1-spec.md`](orchestration-runner-v1-spec.md). It is not
-part of Receipt Core.
+part of Skill Memory Core.
 
 ## Normative language
 
@@ -60,20 +62,20 @@ behavior follows the claimed profile.
 
 ## Ownership model
 
-Auditable Skills v1 separates three authorities:
+Skill Memory v1 separates three authorities:
 
 | Owner | Owns | Does not establish |
 | --- | --- | --- |
-| Skill package | Declared outcomes, possible child skills, isolation intent | Runtime facts, permissions, budgets, or successful effects |
+| Skill package | Declared memory types, possible child skills, isolation intent | Runtime facts, permissions, budgets, or successful effects |
 | Claw or caller | Allowed skill graph, model and execution policy, limits | Evidence that an effect occurred |
-| Harness | Executed identity on native runs, tool evidence, usage, cost, status | Business meaning beyond producer-defined receipt fields |
+| Harness | Executed identity on native runs, tool evidence, usage, cost, status | Business meaning beyond producer-defined memory fields |
 
 An implementation must not treat package metadata as proof that an outcome
 occurred. It must not treat metadata as a permission grant.
 
-For Receipt Core, the receipt producer is the trusted tool boundary, not the
+For Skill Memory Core, the fact producer is the trusted tool boundary, not the
 skill package or model. The producer owns only `type`, optional `version`,
-optional `subject`, and optional `data`. The harness owns receipt identity,
+optional `subject`, and optional `data`. The harness owns memory identity,
 time, agent, session, run, tool, and tool-call correlation. Neither side may
 assert the other's fields as authoritative.
 
@@ -91,7 +93,7 @@ Version 1 uses these compatibility rules:
   ignored. A caller that requires a declaration for policy must fail closed
   when that normalized declaration is absent; it must not treat malformed data
   as permission.
-- Receipt producers may add optional fields within `data` without changing the
+- Memory producers may add optional fields within `data` without changing the
   core version.
 - A breaking change to a core record requires a new `schemaVersion`.
 - Audit readers must reject unsupported core schema versions rather than
@@ -102,16 +104,16 @@ incubating. The author-facing v1 names are the direct names below.
 
 ## Skill Declaration extension profile (later)
 
-This profile is not part of Receipt Core or Round 1.
+This profile is not part of Skill Memory Core or Round 1.
 
-Auditable Skills uses the Agent Skills string-valued `metadata` map.
+Skill Memory uses the Agent Skills string-valued `metadata` map.
 
 ```yaml
 ---
 name: issue-refund
 description: Verify a refund request and issue an approved customer refund.
 metadata:
-  outcomes: "customer.verified payment.refunded"
+  remembers: "customer.verified payment.refunded"
   uses-skills: "verify-customer check-refund-policy"
   isolation: "required"
 ---
@@ -121,13 +123,13 @@ metadata:
 
 | Field | Type | Required | Semantics |
 | --- | --- | --- | --- |
-| `outcomes` | string | No | Whitespace-separated receipt types the skill intends to produce. |
+| `remembers` | string | No | Whitespace-separated memory types the skill intends to produce. |
 | `uses-skills` | string | No | Whitespace-separated skill names the skill may request as managed children. |
 | `isolation` | string | No | `shared`, `preferred`, or `required`. |
 
 ```ts
 type SkillExecutionHintsV1 = {
-  outcomes?: string[];
+  remembers?: string[];
   usesSkills?: string[];
   isolation?: "shared" | "preferred" | "required";
 };
@@ -137,8 +139,8 @@ List values are split on one or more Unicode whitespace characters. Empty
 tokens are discarded. Implementations should preserve declaration order while
 removing exact duplicates for policy and reporting.
 
-Outcome identifiers and skill names must not contain whitespace. Outcome
-identifiers should be stable, producer-owned dotted names such as
+Memory type identifiers and skill names must not contain whitespace. Memory
+types should be stable, producer-owned dotted names such as
 `payment.authorized`, not generic state words such as `done`.
 
 Implementations must bound metadata value length and parsed list size before
@@ -168,13 +170,13 @@ it is allowed by all applicable layers:
 
 A declaration must never widen any of these layers.
 
-## Receipt Core profile
+## Skill Memory Core profile
 
-A receipt is producer-owned evidence attached to a completed successful tool
-result.
+A memory entry is a producer-owned completed-work fact attached to a successful
+tool result.
 
 ```ts
-type SkillReceiptV1 = {
+type AgentToolMemoryV1 = {
   type: string;
   version?: number;
   subject?: {
@@ -201,12 +203,12 @@ Example:
 }
 ```
 
-### Receipt fields
+### Memory fields
 
 | Field | Type | Required | Semantics |
 | --- | --- | --- | --- |
 | `type` | non-empty string | Yes | Primary exact-match business outcome dimension. |
-| `version` | positive integer | No | Producer schema version for this receipt type. |
+| `version` | positive integer | No | Producer schema version for this memory type. |
 | `subject.type` | non-empty string | Conditional | Producer-owned kind of affected object. |
 | `subject.id` | non-empty string | Conditional | Stable producer-owned object identifier. |
 | `data` | JSON object | No | Bounded producer-defined evidence. |
@@ -214,37 +216,37 @@ Example:
 `subject` is valid only when both child fields are present. OpenClaw does not
 interpret subject or data business meaning.
 
-### Receipt admission
+### Memory admission
 
-The harness must admit a receipt only when:
+The harness must admit a memory only when:
 
 - the owning tool call completed successfully;
-- the receipt passes structural validation and configured size limits;
+- the memory passes structural validation and configured size limits;
 - sanitization and redaction complete before durable recording.
 
 Validation, sanitization, and recording must be bounded and must not perform
-request-time network I/O. The implementation must cap receipts admitted from
+request-time network I/O. The implementation must cap memories admitted from
 one tool result and bound total size and store lock wait for that result. A
 recorder or sanitizer failure must be contained so it cannot crash the Gateway
 or change the tool result.
 
-Failed tools must not emit success receipts. Model prose, skill declarations,
-and assistant claims must not be converted into receipts without an explicit
+Failed tools must not emit success memories. Model prose, skill declarations,
+and assistant claims must not be converted into memories without an explicit
 trusted producer boundary.
 
-Malformed receipts are omitted and produce an observable audit diagnostic.
-Receipt-recording failure must not rewrite the underlying tool result.
+Malformed memories are omitted and produce an observable audit diagnostic.
+Memory-recording failure must not rewrite the underlying tool result.
 
-### Recorded receipt envelope
+### Recorded memory envelope
 
-The harness wraps each admitted producer receipt in trusted execution
+The harness wraps each admitted producer memory in trusted execution
 correlation before durable recording.
 
 ```ts
-type RecordedSkillReceiptV1 = {
-  receiptSchema: "openclaw-audit-receipt";
+type RecordedSkillMemoryV1 = {
+  memorySchema: "openclaw-skill-memory";
   schemaVersion: 1;
-  receiptId: string;
+  memoryId: string;
   sequence: number;
   type: string;
   version?: number;
@@ -265,8 +267,8 @@ type RecordedSkillReceiptV1 = {
 
 `occurredAt` is Unix time in milliseconds. `sessionId` identifies the
 transcript instance; `sessionKey`, when present, identifies the stable logical
-route or thread. The receipt producer supplies only the `SkillReceiptV1`
-fields. Receipt ID, sequence, time, agent, tool, tool-call, session, run, and
+route or thread. The fact producer supplies only the `AgentToolMemoryV1`
+fields. Memory ID, sequence, time, agent, tool, tool-call, session, run, and
 optional invocation and skill correlation are harness facts and must not be
 accepted from the producer as authoritative correlation.
 
@@ -275,14 +277,14 @@ skill fields belong to the Managed Skill Identity extension. When present,
 they are denormalized convenience fields and must match the managed descriptor
 associated with the same run.
 
-The recorded receipt is the canonical full business-evidence record. A normal
+The recorded memory is the canonical full business-evidence record. A normal
 trajectory contains only this bounded reference:
 
 ```ts
-type TrajectoryReceiptReferenceV1 = {
-  type: "audit.receipt.recorded";
+type TrajectoryMemoryReferenceV1 = {
+  type: "skill.memory.remembered";
   data: {
-    receiptId: string;
+    memoryId: string;
     type: string;
     version?: number;
     subject?: { type: string; id: string };
@@ -295,30 +297,28 @@ type TrajectoryReceiptReferenceV1 = {
 };
 ```
 
-The reference preserves ordered run history without copying receipt `data`
-into session telemetry. Consumers that need full evidence resolve `receiptId`
-through the receipt store.
+The reference preserves ordered run history without copying memory `data`
+into session telemetry. Consumers that need full evidence resolve `memoryId`
+through the Skill Memory store.
 
-### Receipt store
+### Skill Memory store
 
-The receipt contract has portable idempotent record, get by receipt ID,
-exact-filter list, and count semantics. It must index exact receipt type and
+The memory contract has portable idempotent record, get by memory ID,
+exact-filter list, and count semantics. It must index exact memory type and
 should index subject, agent, session key, run, invocation, and skill identity.
-The local SQLite profile may implement those operations directly; Receipt Core
+The local SQLite profile may implement those operations directly; Skill Memory Core
 does not require a provider interface before a second storage implementation
 exists.
 
-An OpenClaw installation defaults to one shared local SQLite receipt database:
+An OpenClaw installation defaults to one shared local SQLite memory database:
 
 ```json5
 {
-  audit: {
-    receipts: {
-      enabled: true,
-      store: {
-        type: "sqlite",
-        path: "~/.openclaw/state/receipts.sqlite",
-      },
+  skillMemory: {
+    enabled: true,
+    store: {
+      type: "sqlite",
+      path: "~/.openclaw/state/skill-memory.sqlite",
     },
   },
 }
@@ -332,19 +332,19 @@ sharing is not supported. A future remote provider should preserve the same
 producer and query semantics. Introducing that provider is the point at which a
 shared implementation interface should be extracted.
 
-The receipt store has its own retention, backup, and access policy. Session or
-trajectory rotation must not delete its full receipts. Deleting a receipt may
+The Skill Memory store has its own retention, backup, and access policy. Session or
+trajectory rotation must not delete its full memories. Deleting a memory may
 leave a historical trajectory reference unresolved; implementations must not
 reconstruct full evidence from model prose or other untrusted content.
 
 Recording uses a harness-owned source identity such as agent, session, run,
-tool call, and receipt position. Repeating the same source identity with the
-same normalized receipt must return the existing record. Reusing it with
+tool call, and memory position. Repeating the same source identity with the
+same normalized memory must return the existing record. Reusing it with
 different content must fail as an idempotency conflict. A producer cannot
-choose this identity or overwrite an existing receipt.
+choose this identity or overwrite an existing memory.
 
 The store must bound record size, transaction and lock wait, and in-memory
-queueing. Receipt persistence must not add an unbounded wait to the Gateway's
+queueing. Memory persistence must not add an unbounded wait to the Gateway's
 tool-result path. A store error remains observable but must not crash the
 Gateway or rewrite the completed tool result. The implementation must not
 silently fall back to a different per-agent or in-memory store.
@@ -355,19 +355,19 @@ The SQLite profile must:
 - create or migrate its schema in an explicit transaction before accepting
   writes;
 - expose health diagnostics for path, permissions, lock timeout, corruption,
-  and unsupported schema without including receipt payloads;
+  and unsupported schema without including memory payloads;
 - use a consistent SQLite snapshot mechanism for backup and export rather than
   copying a live database file;
 - keep database, journal, and temporary files private to the OpenClaw account.
 
-Disabling new receipt recording must not make existing records unreadable.
+Disabling new memory recording must not make existing records unreadable.
 
 ## Managed Skill Identity extension profile (later)
 
-This profile is not part of Receipt Core or Round 1.
+This profile is not part of Skill Memory Core or Round 1.
 
 Every accepted managed skill call receives one stable invocation ID and starts
-one ordinary child run. Auditable Skills adds immutable skill identity to that
+one ordinary child run. Skill Memory adds immutable skill identity to that
 native record; it does not create a parallel invocation lifecycle.
 
 ```ts
@@ -421,7 +421,7 @@ equivalent direct child run.
 
 ## Run Accounting extension profile (later)
 
-This profile is not part of Receipt Core or Round 1.
+This profile is not part of Skill Memory Core or Round 1.
 
 Usage belongs to the run that consumed it.
 
@@ -511,10 +511,10 @@ guarantee that one active run will not exceed the ceiling.
 This projection belongs to the Run Accounting extension profile.
 
 An audit consumer should be able to obtain one versioned run projection that
-joins managed-run identity, observed receipts, model identity, usage, and cost.
+joins managed-run identity, observed memories, model identity, usage, and cost.
 
 ```ts
-type AuditableSkillRunV1 = {
+type SkillMemoryRunV1 = {
   schemaVersion: 1;
   sessionId: string;
   sessionKey?: string;
@@ -530,12 +530,12 @@ type AuditableSkillRunV1 = {
   accountingScope: "exclusive" | "shared";
   usage?: NormalizedRunUsageV1;
   cost?: RunCostV1;
-  receipts: RecordedSkillReceiptV1[];
+  memories: RecordedSkillMemoryV1[];
 };
 ```
 
-The projection joins receipt-store records with existing trajectory, session,
-and usage facts. It does not duplicate full receipt payloads into a workflow or
+The projection joins skill-memory records with existing trajectory, session,
+and usage facts. It does not duplicate full memory payloads into a workflow or
 usage ledger.
 
 `firstEventAt` and `lastEventAt` bound the observed run history. `status` is
@@ -555,13 +555,13 @@ come from install provenance, not skill metadata.
 
 The stable query contract has three operations:
 
-- `get(receiptId)` returns one full receipt or a typed not-found result;
-- `list(query)` returns a bounded, stably ordered page of full receipts;
+- `get(memoryId)` returns one full memory or a typed not-found result;
+- `list(query)` returns a bounded, stably ordered page of full memories;
 - `count(query)` returns the number of records matching the same filters
-  without materializing receipt payloads.
+  without materializing memory payloads.
 
 ```ts
-type ReceiptFilterV1 = {
+type MemoryFilterV1 = {
   type?: string;
   subject?: { type: string; id?: string };
   agentIds?: string[];
@@ -574,24 +574,24 @@ type ReceiptFilterV1 = {
   occurredBefore?: number;
 };
 
-type ReceiptQueryV1 = ReceiptFilterV1 & {
+type MemoryQueryV1 = MemoryFilterV1 & {
   order?: "oldest" | "newest";
   limit: number;
   cursor?: string;
 };
 
-type ReceiptPageV1 = {
-  receipts: RecordedSkillReceiptV1[];
+type MemoryPageV1 = {
+  memories: RecordedSkillMemoryV1[];
   nextCursor?: string;
 };
 ```
 
-`count` accepts `ReceiptFilterV1`; pagination fields do not affect the count.
+`count` accepts `MemoryFilterV1`; pagination fields do not affect the count.
 
-A Receipt Core implementation must support exact filtering of observed
-receipts by `type`. It should additionally support filtering by:
+A Skill Memory Core implementation must support exact filtering of observed
+memories by `type`. It should additionally support filtering by:
 
-- receipt subject type and id;
+- memory subject type and id;
 - run id;
 - session key;
 - tool name and tool-call id;
@@ -602,15 +602,15 @@ exact skill name and digest plus invocation ID filters.
 
 The query surface must return the originating run and session correlation so an
 operator or later agent can revisit the work thread. It must distinguish
-declared outcomes from observed receipts.
+declared memory types from observed memories.
 
-`list` must impose a maximum limit and deterministic ordering with `receiptId`
+`list` must impose a maximum limit and deterministic ordering with `memoryId`
 or store sequence as the final tie-breaker. Cursors are opaque and scoped to
 the normalized filter and ordering; a cursor must not be accepted with a
 different query. Invalid cursors fail explicitly rather than restarting at the
 first page. An empty `agentIds` list matches no agents.
 
-Receipt Core implementations should support grouping observed receipts by exact
+Skill Memory Core implementations should support grouping observed memories by exact
 type and time window as a reporting projection. CLI, Gateway, plugin, UI,
 workflow, and export surfaces must reuse the same query semantics rather than
 scanning trajectory files directly. The local SQLite profile may expose those
@@ -619,42 +619,42 @@ operations from its SQLite module without a separate provider interface.
 Every public query surface must apply its existing caller, agent, session, and
 plugin authorization before calling the store. Supplying `agentIds` is a
 filter, not an authority grant. `get`, `list`, and `count` must use the same
-visibility rules so counts cannot reveal records whose full receipts the caller
-could not read. A workflow adapter receives receipts only for the managed run
+visibility rules so counts cannot reveal records whose full memories the caller
+could not read. A workflow adapter receives memories only for the managed run
 it is resolving.
 
 ## Retention, sanitization, and export
 
 Implementations must apply existing secret and sensitive-data handling before
-durable recording and export. Receipt producers should record the minimum
+durable recording and export. Memory producers should record the minimum
 evidence needed for later verification.
 
 Producer data may contain authorization codes and other sensitive business
 evidence. In the local SQLite profile, any operating-system user who can read
 the configured database can read that evidence. Operators therefore own file
 access, backup access, export authorization, and retention policy for the
-receipt store.
+Skill Memory store.
 
 Retention, backup, and export policy are deployment concerns. An implementation
 must not claim durable revisitability beyond its configured retention window.
-Receipt retention is independent of transcript and trajectory retention. A
-retained receipt remains searchable after session telemetry rotates, although
+Memory retention is independent of transcript and trajectory retention. A
+retained memory remains searchable after session telemetry rotates, although
 the transcript needed to reconstruct conversational context may no longer be
 available. An external system remains authoritative for business objects it
 owns.
 
 Retention cleanup must be bounded and observable. It must delete canonical
-receipt records without rewriting trajectories; an old trajectory reference
-may therefore resolve as not found. Export must preserve receipt schema
-version, receipt ID, exact type, occurrence time, and harness correlation.
+memory records without rewriting trajectories; an old trajectory reference
+may therefore resolve as not found. Export must preserve memory schema
+version, memory ID, exact type, occurrence time, and harness correlation.
 Exports containing producer `data` require the same or stronger authorization
 and redaction policy as direct `get` and `list` operations.
 
 Managed child-run metadata may have a different retention window from full
-receipts. An implementation that claims later skill-level attribution must
+memories. An implementation that claims later skill-level attribution must
 retain or export the `runId` to managed-skill association for that claimed
 window. If the association has expired, readers report identity as unavailable;
-they must not infer it from transcript prose or a receipt producer's data.
+they must not infer it from transcript prose or a memory producer's data.
 
 The v1 envelope provides correlation, not tamper evidence. Products that claim
 regulatory attestation or modification detection need a separately specified
@@ -667,56 +667,56 @@ integrity, signing, and verification layer.
 A conforming skill author:
 
 - uses only string metadata values;
-- treats `outcomes` as declarations rather than evidence;
-- does not place secrets, tokens, cost, receipts, budgets, permissions, or run
+- treats `remembers` as declarations rather than evidence;
+- does not place secrets, tokens, cost, memories, budgets, permissions, or run
   state in metadata;
 - chooses stable outcome identifiers.
 
-### Receipt producer
+### Memory producer
 
-A conforming receipt producer:
+A conforming fact producer:
 
-- emits receipts only from a trusted completed successful operation;
+- emits memories only from a trusted completed successful operation;
 - supplies a stable `type`;
 - bounds and sanitizes subject and data;
 - does not report model usage or harness lineage as producer-owned evidence.
 
-### Receipt Core harness
+### Skill Memory Core harness
 
-A conforming Receipt Core harness:
+A conforming Skill Memory Core harness:
 
-- admits receipts only from successful tools;
-- caps and bounds receipt work per tool result;
+- admits memories only from successful tools;
+- caps and bounds memory work per tool result;
 - contains validation and storage failure without changing the tool result;
 - exposes originating run and session correlation.
 
-### Receipt Core required test vectors
+### Skill Memory Core required test vectors
 
-A conforming Receipt Core implementation should prove at least:
+A conforming Skill Memory Core implementation should prove at least:
 
-1. A successful tool records a valid `payment.authorized` receipt.
-2. A failed tool records no success receipt.
-3. A malformed receipt is omitted with a diagnostic.
+1. A successful tool records a valid `payment.authorized` memory.
+2. A failed tool records no success memory.
+3. A malformed memory is omitted with a diagnostic.
 4. Exact type filtering returns the originating run and session.
-5. Oversized receipt data is omitted without changing the successful tool
+5. Oversized memory data is omitted without changing the successful tool
    result.
 6. Two local agents write to one configured store and an all-agent exact-type
    count returns both records.
-7. A trajectory reference contains the receipt ID and correlation but no
-   producer `data`; `get` resolves the full data from the receipt store.
+7. A trajectory reference contains the memory ID and correlation but no
+   producer `data`; `get` resolves the full data from the Skill Memory store.
 8. Repeating one harness source identity with equal content is idempotent;
    different content produces a conflict.
-9. Session or trajectory rotation does not delete the canonical receipt.
+9. Session or trajectory rotation does not delete the canonical memory.
 10. A database with a newer unsupported schema is rejected with an actionable
     health diagnostic and no fallback store is created.
-11. List pagination is stable when multiple receipts share an occurrence time,
+11. List pagination is stable when multiple memories share an occurrence time,
     and count does not materialize producer data.
-12. The maximum admitted receipts from one result are committed as one bounded
+12. The maximum admitted memories from one result are committed as one bounded
     batch; overflow is ignored with an observable diagnostic and cannot extend
-    lock wait per omitted receipt.
+    lock wait per omitted memory.
 13. After the recording process exits, fresh query processes can count exact
     outcome types across at least three session keys and two agents, resolve a
-    full evidence payload by receipt ID, and return the originating session.
+    full evidence payload by memory ID, and return the originating session.
     The query layer does not infer authoritative unresolved state from a
     missing outcome.
 
@@ -739,16 +739,16 @@ An implementation claiming a later profile should additionally prove:
 
 An email channel maps a provider conversation to a stable OpenClaw session. A
 verification tool records `customer.verified` only after verification succeeds,
-and a case tool records `case.resolved` only after resolution succeeds. Receipt
+and a case tool records `case.resolved` only after resolution succeeds. Memory
 Core retains each outcome with its originating session and run. If an
 implementation later claims Managed Skill Identity and Run Accounting, it may
 also correlate the exact skill revision and observed run usage without changing
-the receipt.
+the memory.
 
 An operator can later filter `case.resolved`, count resolutions, inspect a
-resolution code in receipt data, and reopen the originating session.
+resolution code in memory data, and reopen the originating session.
 No separate CRM schema is required for that retained operational history. A
 producer may place an external case id in `subject` when a separate system owns
-the authoritative case. Receipt Core does not infer an unresolved case or
+the authoritative case. Skill Memory Core does not infer an unresolved case or
 current lifecycle state from the absence of `case.resolved`; a source channel,
 CRM, or workflow consumer owns that projection.
