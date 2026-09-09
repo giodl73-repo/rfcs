@@ -256,10 +256,10 @@ underlying Gateway, proxy, plugin, model, node, or storage config.
 
 Profiles use RFC 0018's identity package instead of defining another runtime
 identity. A profiled result declares `openclaw/hosting-profile/selected` with
-the selected profile as its opaque ID and the profile contract version as its
-generation. `ProfileSelected` targets that subject. Topology-specific
-conditions target the Gateway or node-controller subject and relate back to
-the selected profile.
+the selected profile as its opaque ID. The profile contract version is result
+metadata, not a generation of that subject. `ProfileSelected` targets the
+profile subject. Topology-specific conditions target the Gateway or
+node-controller subject and relate back to the selected profile.
 
 Node mode additionally declares `openclaw/nodes/managed` and bounded child
 subjects for the paired nodes observed during that evaluation. Its aggregate
@@ -267,8 +267,10 @@ conditions use the controller as their primary subject and list observed nodes
 as related subjects. Repeated results can therefore distinguish a changed
 condition from a replaced Gateway, changed profile, or changed node set.
 
-The Gateway serving-lifecycle ID remains RFC 0018's concern. Hosts may supply
-its opaque ID through `OPENCLAW_INSTANCE_ID`; otherwise OpenClaw generates it.
+Gateway, process, and optional host-workload identities remain RFC 0018's
+concern. OpenClaw generates the Gateway serving-lifecycle ID and process ID.
+When supplied, `OPENCLAW_INSTANCE_ID` identifies only the fingerprinted
+host-workload parent; it never overrides either generated child identity.
 Profiles do not add `runtimeId`, `incarnationId`, or an activation envelope.
 
 ### Operator extensions
