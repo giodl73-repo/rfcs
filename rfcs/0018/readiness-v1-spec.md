@@ -207,7 +207,7 @@ bounded redacted operator explanation, and `subjectRef` plus
 `relatedSubjectRefs` identify affected objects. Unauthenticated remote output
 must omit those details.
 
-This summary is not part of `CanonicalReadinessResult` and does not change its
+This summary is not part of `ReadinessResult` and does not change its
 contract version. It is computed only by projection owners from an already
 evaluated result.
 
@@ -446,6 +446,16 @@ result and must not start another invocation, including after config or plugin
 registry replacement. The callback is quarantined by canonical criterion ID
 until it settles. A new invocation may start only after settlement and the
 applicable cache or replacement-generation rules permit it.
+
+For a callback that never settles, Gateway process termination is the only
+reset boundary. Config reload, plugin reload, and registry replacement must not
+clear its quarantine or start an overlapping replacement invocation in the
+same process. After correcting or replacing the provider, an operator recovers
+by restarting the Gateway; the new process may invoke the selected criterion
+once under its new registry generation. Provider conformance must cover a
+required callback that ignores cancellation, remains quarantined across reload,
+and recovers after process restart without exceeding one outstanding callback
+per process.
 
 Successful and failed provider or workspace observations may be cached for at
 most five seconds. Replacement effective-config or plugin-registry snapshots,
