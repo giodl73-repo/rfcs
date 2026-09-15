@@ -38,6 +38,17 @@ acceptance. Normal OpenClaw maintainership, review, and CODEOWNERS processes can
 evolve with the implementation. Later release or scope expansion requires the
 separate gates in this RFC and its companion specifications.
 
+The implementation drafts are being refreshed against OpenClaw
+`05c501ab7e` (2026-09-15). The wire-level node invocation contract remains
+compatible, but both reference implementations have evolved materially since
+the August draft heads. TypeScript added worker/session hosting, workspace
+transfer, runner inventory, plugin duplex channels, host statistics, and
+stronger authority and lifecycle enforcement. Linux Tauri added saved and
+remote Gateway profiles, credential references, independent Gateway switching,
+and recovery behavior. The bounded two-crate ownership proposal remains the
+same; the implementation PRs must be re-derived from current source and their
+evidence rerun before review.
+
 ## Motivation
 
 OpenClaw already has a TypeScript node host, and its Tauri application has Rust
@@ -147,10 +158,16 @@ The split is deliberate: it prevents every Gateway consumer from inheriting an
 execution runtime, while ensuring node hosts do not invent transport or
 authentication behavior.
 
-The crates remain in the OpenClaw monorepo while the contract is evolving. This
-keeps TypeScript and Rust conformance changes reviewable together and avoids
-repository, version, and release skew. A later RFC or maintainer decision may
-publish them once the public API and support policy are stable.
+The current implementation review keeps the crates in the OpenClaw monorepo
+while the contract is evolving. This keeps TypeScript and Rust conformance
+changes reviewable together and avoids repository, version, and release skew.
+During re-derivation, `giodl73-repo/openclaw-rust-node` is an incubation and
+conformance source whose reviewed snapshots are projected into the OpenClaw
+PRs; it is not an independent protocol authority. Maintainers may instead place
+the crates in a new OpenClaw-owned Rust repository if they prefer that release
+and ownership boundary. Either placement must keep OpenClaw's Gateway schemas
+and shared fixtures authoritative and must preserve atomic cross-repository
+compatibility gates.
 
 During incubation, `pub` means available to reviewed workspace consumers, not
 a stable or supported public Rust API. The crate names, module layout, Rust
@@ -278,7 +295,7 @@ retain authority.
 ### Delivery plan
 
 The proposed review shape is three logically stacked OpenClaw implementation
-PRs plus one initial Windows adopter PR:
+PRs followed by a smaller sponsored Windows adopter:
 
 1. **OpenClaw foundation:** add the two crates, a role-safe Gateway session, a
    minimal bounded node host, and a Tauri consumer that proves the client is
@@ -299,10 +316,12 @@ PRs plus one initial Windows adopter PR:
    stops before choosing product IPC, protected credential bootstrap, process
    supervision, or rollout policy.
 4. **Windows adopter:** keep the existing C# runtime as the production default
-   while adding one replaceable runtime boundary and one Windows-owned shared
-   capability dispatcher, plus an independent non-selectable C# consumer of
-   the sidecar contracts
-   ([openclaw-windows-node#1068](https://github.com/openclaw/openclaw-windows-node/pull/1068)).
+   while adding only the smallest replaceable runtime boundary and protected
+   adapter proof needed to consume the accepted contracts. The earlier
+   [openclaw-windows-node#1068](https://github.com/openclaw/openclaw-windows-node/pull/1068)
+   was closed on 2026-09-02 as a stale speculative sidecar bundle. It remains
+   design and test evidence, not an active merge candidate; adoption requires a
+   newly sponsored, current-contract PR.
 
 Fork-only follow-up evidence now launches the real Rust test child over
 anonymous pipes, verifies an exact SHA-256 artifact pin while locking the
@@ -335,16 +354,14 @@ and steady-state resource cost. API stability, artifacts, SBOM/signing,
 compatibility windows, servicing, and support ownership remain explicit release
 decisions before the crates are declared generally supported.
 
-The existing official C# Windows node now has one consolidated draft adopter
-([openclaw-windows-node#1068](https://github.com/openclaw/openclaw-windows-node/pull/1068)).
-It introduces an injectable node-runtime contract and extracts a single
-Windows-owned capability dispatcher shared by the current C# transport and the
-new non-selectable sidecar adapter, while keeping the C# client as the
-production default. The public OpenClaw draft now proves authenticated framing
-across a real child process. Fork evidence extends that proof with a verified,
-privately bootstrapped process over authenticated, versioned
-anonymous pipes. A future product adoption slice can wire that launcher into
-an opt-in runtime and add signing, packaging, supervision, and rollback:
+The closed Windows #1068 draft demonstrated an injectable node-runtime contract
+and a Windows-owned capability dispatcher shared by the current C# transport
+and a non-selectable sidecar adapter. The public OpenClaw draft proves
+authenticated framing across a real child process, and fork evidence extends
+that proof with a verified, privately bootstrapped process over authenticated,
+versioned anonymous pipes. A new, smaller product adoption slice can reuse
+those lessons after the shared contracts are refreshed, then add signing,
+packaging, supervision, and rollback:
 Rust owns Gateway transport, registration, invocation, cancellation, reconnect,
 and runtime lifecycle, while the Windows app retains WinUI, the operator role,
 MCP, approvals, and native capability handlers. This proves adoption can be

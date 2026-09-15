@@ -9,17 +9,23 @@ semantics.
 
 | Repository / surface | Reviewed head | Status |
 | --- | --- | --- |
-| `openclaw/openclaw` foundation PR #116050 | `1aaec0c5a56` | Draft; rebased Rust client/host plus Linux Tauri consumer |
-| `openclaw/openclaw` follow-up PR #116450 | `bfd5c4d14e2` | Draft; logically stacked on #116050; generated native models preserve the established nullable-string invocation API |
-| `openclaw/openclaw` sidecar PR #116863 | `71c1c8cb23c` | Draft; logically stacked on #116450; includes complete configured cross-process authenticated IPC proof |
+| `openclaw/openclaw` foundation PR #116050 | `1aaec0c5a56` | Draft; August evidence head, being re-derived from current Tauri rather than mechanically rebased |
+| `openclaw/openclaw` follow-up PR #116450 | `bfd5c4d14e2` | Draft; stale/conflicted August evidence, pending refreshed #116050 and current authority/lifecycle fixtures |
+| `openclaw/openclaw` sidecar PR #116863 | `71c1c8cb23c` | Draft; stale/conflicted August evidence, pending refreshed #116450 |
 | `openclaw/openclaw` cancellation contract PR #115390 | `3cac3e4a3aa` | Draft; required `{ invokeId, nodeId }` schema consumed by TypeScript and Swift |
-| `openclaw/openclaw-windows-node` PR #1068 | `711fe095` | Draft; rebased seam plus independent sidecar adapter; C# remains production default |
+| `openclaw/openclaw-windows-node` PR #1068 | `711fe095` | Closed 2026-09-02 without merge; prior seam/adapter evidence only |
 | Experimental Rust launch proof #12 | `3d1357f` | Draft, fork-only; protected bootstrap plus deterministic pinned aggregate evidence |
 | Experimental Windows launch proof #4 | `199eaa1fcba` | Draft, fork-only; path-locked verified launcher and mandatory artifact identity |
 | `openclaw/rfcs` RFC #54 | Current PR head | Draft ownership decision; this inventory is refreshed with each evidence change |
-| Experimental `openclaw-rust-node` evidence repository | merged PRs #1-#5; draft #6 | Evidence history, not official distribution |
+| Experimental `openclaw-rust-node` evidence repository | `1438657c43c` plus refresh branch | Incubation and conformance source projected into OpenClaw PRs; not an independent protocol authority or official distribution |
 
 Exact heads must be refreshed before approval or release.
+
+The current comparison baseline is `openclaw/openclaw` `05c501ab7e`
+(2026-09-15). Protocol v4/node minimum v3 and the bounded invocation envelopes
+remain compatible. The TypeScript host and Linux Tauri application have
+otherwise evolved materially, so the August implementation heads below are
+historical evidence until their current-main replacements pass the same gates.
 
 ## Canonical contract owners
 
@@ -36,8 +42,8 @@ Exact heads must be refreshed before approval or release.
 
 | Implementation | Reusable evidence | Product-specific ownership retained | Do not copy into Rust v1 |
 | --- | --- | --- | --- |
-| TypeScript `src/node-host` | Generic node role, manifests, invocation lifecycle, reconnect classification, built-in semantics | Node.js process, dynamic plugin/skill inventory, full execution policy | Transliteration of every command or Node.js assumption |
-| Linux Tauri Rust Gateway client | Rust TLS pinning, signed identity, issued-token replacement, stale-token clearing, reconnect, heartbeat, correlation | Tauri UI/operator role, identity/token persistence and desktop lifecycle | Treating an operator client as the node semantic authority |
+| TypeScript `src/node-host` | Generic node role, manifests, invocation lifecycle, reconnect classification, built-in semantics | Node.js process, worker/session hosting, workspace transfer, runner inventory, dynamic plugin/skill channels, host statistics, full execution policy | Transliteration of every command or Node.js assumption |
+| Linux Tauri Rust Gateway client | Rust TLS pinning, signed identity, issued-token replacement, stale-token clearing, reconnect, heartbeat, correlation | Tauri UI/operator role, saved/remote Gateway profiles, credential references, switching/recovery, identity/token persistence and desktop lifecycle | Treating an operator client as the node semantic authority or moving profile policy into the transport crate |
 | Apple Swift nodes | Connection-scoped route/capability snapshots and reconnect on authority change | TCC, app/worker IPC, Apple UI and native tools | Apple lifecycle or permission APIs |
 | Android Kotlin node | Role-separated sessions, role-keyed tokens, bounded token retry, permission-driven inventory | Android service/UI/permission lifecycle | Android storage and foreground-service policy |
 | Windows C# node | Backpressure, cancellation, shared capability dispatcher, real Gateway/MXC execution | WinUI, operator role, MCP, approvals, MXC/native tools | Reimplementing Windows routing or policy in Rust |
@@ -169,7 +175,7 @@ policy, or rollout controls to the product.
 | Embeddable stack | Ubuntu 24.04 WSL2, Rust 1.93, `bfd5c4d14e2` | 73 workspace tests; strict Clippy/format/diff and Swift/Kotlin protocol-generation checks pass; native `paramsJSON` remains nullable string | Android generator output is verified, but the local Android unit test is pending a Java-enabled hosted lane |
 | Shared fixtures | Rust current-head consumer plus canonical TypeScript validators | Rust lifecycle and Gateway-authority consumers plus focused TypeScript schema/integration tests pass at `bfd5c4d14e2` | Live production-Gateway compatibility remains a release gate |
 | OpenClaw sidecar bridge | Rust workspace, `71c1c8cb23c` | 124 workspace tests; strict Clippy/format/diff pass; exact three-corpus proof plus a separate OS child completing authenticated configuration/manifest acknowledgement, admission, invocation, and result over real TCP IPC | Test process/transport; no protected bootstrap, artifact verification, product supervisor, or live Gateway |
-| Windows adopter | Windows 11, `711fe095` | 3,701 Shared tests and 22 focused Connection tests pass after rebase; the prior head additionally passed the full build, exact three-corpus reproduction, 60 focused, 2,023 Tray, and 519 Connection tests; Codex and three-model reviews were clean | C# remains selected; adapter is in-process and non-selectable; the larger suites are prior-head evidence pending CI at the rebased head |
+| Closed Windows adopter | Windows 11, `711fe095` | 3,701 Shared tests and 22 focused Connection tests passed; the prior head additionally passed the full build, exact three-corpus reproduction, 60 focused, 2,023 Tray, and 519 Connection tests | PR #1068 closed without merge on 2026-09-02; evidence informs a smaller sponsored replacement but is not current adoption proof |
 | Protected process launch | Windows 11, Rust `3d1357f`, Windows `199eaa1fcba` | 122 shared Rust and 64 focused Windows tests; three exact fixture blobs; deterministic junction-path, hash, and handshake-identity rejection; private bootstrap and real invocation | Test artifact and source harness; no platform signature, package/update or production selection |
 | Windows live MXC | Windows host + isolated Ubuntu WSL + live loopback Gateway | 2/2 allowed/denied `system.run` cases pass | Proves shared dispatcher on C# default path |
 | Experimental package acceptance | Linux x64, Windows x64, macOS ARM64 | Build/checksum/extract/execute evidence | Separate experimental repository |
@@ -190,7 +196,7 @@ final UTF-8 validator correction.
 | Gateway session | Implemented draft | Ownership, compatibility and release acceptance |
 | Basic node invocation | Implemented draft | Shared canonical fixtures and current-head live Gateway proof |
 | Duplex input/progress/cancel | Implemented draft | Complete published node-event corpus and cross-language proof |
-| Sidecar IPC | OpenClaw #116863 now proves authenticated framing across a real OS child and TCP transport; Windows #1068 implements the independent adapter; fork #12/#4 additionally proves anonymous-pipe transport, exact hash launch, protected bootstrap, and handshake artifact binding; RFC connection-control contract is drafted but unimplemented | Implement both consumers of `sidecar-gateway-connection-v1-spec.md`; prove platform signing/package delivery plus live Gateway, audit, crash, resource, rollout and rollback behavior |
+| Sidecar IPC | The August #116863 head proves authenticated framing across a real OS child and TCP transport; closed Windows #1068 and fork #12/#4 provide prior adapter, anonymous-pipe, exact-hash, protected-bootstrap, and handshake-binding evidence; RFC connection-control contract is drafted but unimplemented | Refresh the shared contract, implement new current consumers including protected product-selected IPC, and prove platform signing/package delivery plus live Gateway, audit, crash, resource, rollout and rollback behavior |
 | Persistent secure identity/token storage | Embedding seam only | Platform adapter and rotation/revocation proof |
 | Product audit/export adapter | Not implemented | Stable event contract, correlation/redaction proof, real product audit sink |
 | Aggregate retained-event byte budget | Implemented draft: exact count plus aggregate raw-frame bytes; 256 events and 64 MiB by default | Current-head compatibility and load proof before support |

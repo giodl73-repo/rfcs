@@ -9,6 +9,13 @@ Status: draft. This contract defines the bounded native/headless subset; it
 does not claim parity with every TypeScript command, plugin, skill, or execution
 policy.
 
+As of the 2026-09-15 refresh, TypeScript worker/session hosting, workspace
+transfer, runner inventory, plugin duplex channels, native CLI sessions, host
+statistics, and Cloudflare Access support are additive reference capabilities,
+not implicit Rust v1 requirements. Adding any of them requires a separately
+accepted owner contract and conformance corpus; their absence does not relax
+the portable mechanics and authority requirements defined here.
+
 ## Scope
 
 The runtime owns portable node mechanics:

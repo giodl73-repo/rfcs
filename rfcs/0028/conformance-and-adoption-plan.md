@@ -25,8 +25,8 @@ supported.
 | G1 Gateway client | OpenClaw #116050 | Unit/socket tests, Linux Tauri tests, current-head static gates | Tauri app-local duplicate transport |
 | N1 bounded node foundation | OpenClaw #116050 | Real loopback Gateway invocation plus health/readiness/shutdown | Per-adopter basic node session/runtime scaffolding |
 | N2 embeddable lifecycle | OpenClaw #116450 | Shared fixtures and real socket lifecycle, signing, token, reconnect, duplex, manifest, admission tests | Per-adopter signing/reconnect/invocation lifecycle |
-| A1 adopter seam | Windows #1068 | Existing C# default, full unit suites, real Gateway MXC path | Duplicate Windows routing when Rust adapter arrives |
-| A2 sidecar adapter | OpenClaw #116863 plus Windows #1068 | Independent authenticated/versioned framing, handshake/configuration, typed ordinary-command bridge, dispatcher routing, exact cross-language corpora, and a real OS child exchanging authenticated frames over TCP | No deletion; product bootstrap/supervision and production adoption gates remain |
+| A1 adopter seam | Future sponsored Windows PR; closed #1068 is prior evidence | Existing C# default, current shared-contract consumers, focused unit suites, protected IPC proof, real Gateway MXC path | Duplicate Windows routing when Rust adapter arrives |
+| A2 sidecar adapter | OpenClaw #116863 plus future sponsored Windows PR | Independent authenticated/versioned framing, handshake/configuration, typed ordinary-command bridge, dispatcher routing, exact cross-language corpora, and a real OS child exchanging authenticated frames over protected product-selected IPC | No deletion; product supervision and production adoption gates remain |
 | A3a launch/bootstrap evidence | Rust fork #12 plus Windows fork #4 | Exact artifact SHA-256 and reparse-path rejection, path locks through launch, self-identity handshake binding, bounded private-pipe bootstrap, real process admission/invocation | No deletion; signing, packaging, Gateway parity and operational adoption remain |
 | A3b Gateway connection control | RFC connection fixture plus future OpenClaw and adopter PRs | Negotiated feature gate, per-attempt material acquisition, external signing, issued-token acknowledgement, generation retirement, redaction, and protected-IPC live Gateway proof | Environment/file credential proof paths only; no incumbent production deletion |
 | A3 sidecar adoption | Future Windows adopter PR | Verified artifact/launch, protected bootstrap, concrete IPC, Gateway/pairing/token parity, crash, revocation, audit, resource, rollout and rollback proof | Incumbent product-owned Gateway transport after observation window |
@@ -139,7 +139,7 @@ Workspace tests alone do not authorize publication.
 
 ## Evidence already available
 
-The current drafts provide:
+The August drafts provide evidence history, not current-main readiness:
 
 - #116050: reusable Gateway client, bounded host, Tauri migration, real
   loopback node/health proof, and 56 Rust workspace tests at `1aaec0c5a56`;
@@ -149,7 +149,7 @@ The current drafts provide:
   configuration, ordinary-command bridge, three exact corpora, a real
   cross-process authenticated configuration, manifest, admission, invocation,
   and result test, and 124 stacked Rust tests at `71c1c8cb23c`;
-- Windows #1068: replaceable runtime boundary, shared dispatcher, independent
+- closed Windows #1068: replaceable runtime boundary, shared dispatcher, independent
   C# sidecar consumer, 3,701 Shared and 22 focused Connection tests at
   `711fe095`; the prior head also passed its larger focused, Tray, and full
   Connection suites, and the unchanged C# default path has 2/2 live Gateway
@@ -160,6 +160,17 @@ The current drafts provide:
   plus 64 focused Windows tests, and three exact fixture blobs; and
 - earlier experimental repository package, SBOM, dependency, and provenance
   evidence, which remains evidence history rather than an official release.
+
+The refresh baseline is OpenClaw `05c501ab7e` (2026-09-15). Current Gateway
+protocol v4/node minimum v3 and the invoke/input/progress/result/cancel
+envelopes remain compatible. Before these rows can be treated as current
+evidence, #116050 must re-extract the shared client from current Tauri without
+losing Gateway profiles, credential references, switching, or recovery;
+#116450 must regenerate authority, reapproval, revocation, lifecycle, and
+readiness fixtures from current behavior; and #116863 must be rebuilt on that
+foundation. New TypeScript worker/session, workspace, plugin, runner-inventory,
+and host-statistics features remain outside bounded Rust v1 unless separately
+accepted.
 
 Known gaps are a production/deployed Gateway run for the latest Rust heads,
 platform signing/provenance and packaged artifact discovery/update,
