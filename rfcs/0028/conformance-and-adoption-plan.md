@@ -146,12 +146,13 @@ Current-main evidence now includes:
 - #116050 merged as `f9a7f104c22`, #116450 as `29069179def`, and #116863 as
   `ce4f1d711bb` after exact-head review, focused Rust/Tauri proof, strict static
   gates, and authenticated separate-process proof;
-- #150329 at `232a5d851d9`: a dedicated path-scoped workflow with bilateral
+- #150329 at `3083030ee1a`: a dedicated path-scoped workflow with bilateral
   request/input/progress/result/cancel fixtures, 140 locked Rust tests, 166
-  focused TypeScript tests, and 639 workflow-guard tests;
+  focused TypeScript tests, 639 workflow-guard tests, and a green exact-head
+  Node Runtime Conformance run;
 - #150344 at `a97e9bdba67`: native credential/signing, hostname-bound trust,
   admission, request-lifetime, and fair control-channel seams with 148 Rust
-  tests and final hosted Swift proof in progress;
+  tests, green shared iOS/macOS Periphery, macOS Swift tests, and iOS smoke;
 - macOS #149725 at `22577da21a8`: a focused adopter stack with a signed helper,
   Swift adapter, proxy/PAC-safe URLSession fallback, packaging, and native
   probe harnesses;
@@ -172,13 +173,14 @@ invoke/input/progress/result/cancel envelopes remain compatible. TypeScript
 worker/session, workspace, plugin, runner-inventory, and host-statistics
 features remain outside bounded Rust v1 unless separately accepted.
 
-Known gaps are final hosted proof for #150329/#150344, exact-head disposable
-macOS package/signing/install/upgrade/rollback and functional/performance proof
-for #149725, implementation of the complete Gateway connection-control fixture,
-live Gateway/pairing/token integration through the packaged sidecar,
-crash/circuit-breaker/resource/rollback proof, an embedding/product audit
-adapter, explicit authorization for the reserved `system.*` namespace,
-supported artifact publication, and named release ownership.
+Known gaps are final broad CI and review completion for #150329, exact-head
+disposable macOS package/signing/install/upgrade/rollback and
+functional/performance proof for #149725, implementation of the complete
+Gateway connection-control fixture, live Gateway/pairing/token integration
+through the packaged sidecar, crash/circuit-breaker/resource/rollback proof, an
+embedding/product audit adapter, explicit authorization for the reserved
+`system.*` namespace, supported artifact publication, and named release
+ownership.
 
 ## Promotion and deletion ledger
 
