@@ -153,7 +153,7 @@ Current-main evidence now includes:
 - #150344 at `a97e9bdba67`: native credential/signing, hostname-bound trust,
   admission, request-lifetime, and fair control-channel seams with 148 Rust
   tests, green shared iOS/macOS Periphery, macOS Swift tests, and iOS smoke;
-- macOS #149725 at `22577da21a8`: a focused adopter stack with a signed helper,
+- macOS #149725 at `5313bdc7fa8`: a focused adopter stack with a signed helper,
   Swift adapter, proxy/PAC-safe URLSession fallback, packaging, and native
   probe harnesses;
 - closed Windows #1068: replaceable runtime boundary, shared dispatcher, independent
