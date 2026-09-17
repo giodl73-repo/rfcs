@@ -22,14 +22,16 @@ supported.
 
 | Layer | Review surface | Required proof | Deletion unlocked |
 | --- | --- | --- | --- |
-| G1 Gateway client | OpenClaw #116050 | Unit/socket tests, Linux Tauri tests, current-head static gates | Tauri app-local duplicate transport |
-| N1 bounded node foundation | OpenClaw #116050 | Real loopback Gateway invocation plus health/readiness/shutdown | Per-adopter basic node session/runtime scaffolding |
-| N2 embeddable lifecycle | OpenClaw #116450 | Shared fixtures and real socket lifecycle, signing, token, reconnect, duplex, manifest, admission tests | Per-adopter signing/reconnect/invocation lifecycle |
+| G1 Gateway client | Merged OpenClaw #116050 | Unit/socket tests, Linux Tauri tests, current-head static gates | Tauri app-local duplicate transport |
+| N1 bounded node foundation | Merged OpenClaw #116050 | Real loopback Gateway invocation plus health/readiness/shutdown | Per-adopter basic node session/runtime scaffolding |
+| N2 embeddable lifecycle | Merged OpenClaw #116450 | Shared fixtures and real socket lifecycle, signing, token, reconnect, duplex, manifest, admission tests | Per-adopter signing/reconnect/invocation lifecycle |
+| C1 permanent conformance | OpenClaw #150329 | Bilateral TypeScript/Rust lifecycle and authority fixtures plus both complete affected test lanes | Undetected drift between the bounded implementations |
 | A1 adopter seam | Future sponsored Windows PR; closed #1068 is prior evidence | Existing C# default, current shared-contract consumers, focused unit suites, protected IPC proof, real Gateway MXC path | Duplicate Windows routing when Rust adapter arrives |
-| A2 sidecar adapter | OpenClaw #116863 plus future sponsored Windows PR | Independent authenticated/versioned framing, handshake/configuration, typed ordinary-command bridge, dispatcher routing, exact cross-language corpora, and a real OS child exchanging authenticated frames over protected product-selected IPC | No deletion; product supervision and production adoption gates remain |
+| A2 sidecar adapter | Merged OpenClaw #116863 plus product adapters | Independent authenticated/versioned framing, handshake/configuration, typed ordinary-command bridge, dispatcher routing, exact cross-language corpora, and a real OS child exchanging authenticated frames over product-selected IPC | No deletion; product supervision and production adoption gates remain |
+| A2b native ownership seams | OpenClaw #150344 | Native credentials/signing, hostname-bound TLS trust, admission, request lifetime, cancellation, and non-starvable keepalive proof | Per-adopter copies of the same Rust/native boundary |
 | A3a launch/bootstrap evidence | Rust fork #12 plus Windows fork #4 | Exact artifact SHA-256 and reparse-path rejection, path locks through launch, self-identity handshake binding, bounded private-pipe bootstrap, real process admission/invocation | No deletion; signing, packaging, Gateway parity and operational adoption remain |
 | A3b Gateway connection control | RFC connection fixture plus future OpenClaw and adopter PRs | Negotiated feature gate, per-attempt material acquisition, external signing, issued-token acknowledgement, generation retirement, redaction, and protected-IPC live Gateway proof | Environment/file credential proof paths only; no incumbent production deletion |
-| A3 sidecar adoption | Future Windows adopter PR | Verified artifact/launch, protected bootstrap, concrete IPC, Gateway/pairing/token parity, crash, revocation, audit, resource, rollout and rollback proof | Incumbent product-owned Gateway transport after observation window |
+| A3 sidecar adoption | Draft macOS #149725 and future sponsored adopters | Verified artifact/launch, protected bootstrap, concrete IPC, Gateway/pairing/token parity, proxy behavior, crash, revocation, audit, resource, rollout and rollback proof | Incumbent product-owned Gateway transport after observation window |
 | R1 supported release | future OpenClaw release decision | Package acceptance, signing/provenance, SBOM, compatibility, servicing and security runbooks | Experimental-only packaging and private distribution |
 
 ## Shared fixture families
@@ -139,16 +141,20 @@ Workspace tests alone do not authorize publication.
 
 ## Evidence already available
 
-The August drafts provide evidence history, not current-main readiness:
+Current-main evidence now includes:
 
-- #116050: reusable Gateway client, bounded host, Tauri migration, real
-  loopback node/health proof, and 56 Rust workspace tests at `1aaec0c5a56`;
-- #116450: lifecycle/signing/token, duplex/admission/manifest conformance and
-  73 stacked Rust tests plus current generated native models at `bfd5c4d14e2`;
-- #116863: consolidated authenticated sidecar framing, handshake, immutable
-  configuration, ordinary-command bridge, three exact corpora, a real
-  cross-process authenticated configuration, manifest, admission, invocation,
-  and result test, and 124 stacked Rust tests at `71c1c8cb23c`;
+- #116050 merged as `f9a7f104c22`, #116450 as `29069179def`, and #116863 as
+  `ce4f1d711bb` after exact-head review, focused Rust/Tauri proof, strict static
+  gates, and authenticated separate-process proof;
+- #150329 at `0a40c890e53`: a dedicated path-scoped workflow with bilateral
+  request/input/progress/result/cancel fixtures, 140 locked Rust tests, 166
+  focused TypeScript tests, and 639 workflow-guard tests;
+- #150344 at `ffac53d92ce`: native credential/signing, hostname-bound trust,
+  admission, request-lifetime, and fair control-channel seams with 148 Rust
+  tests and final hosted Swift proof in progress;
+- macOS #149725 at `ab851a5d4e8`: a focused adopter stack with a signed helper,
+  Swift adapter, proxy/PAC-safe URLSession fallback, packaging, and native
+  probe harnesses;
 - closed Windows #1068: replaceable runtime boundary, shared dispatcher, independent
   C# sidecar consumer, 3,701 Shared and 22 focused Connection tests at
   `711fe095`; the prior head also passed its larger focused, Tray, and full
@@ -161,25 +167,18 @@ The August drafts provide evidence history, not current-main readiness:
 - earlier experimental repository package, SBOM, dependency, and provenance
   evidence, which remains evidence history rather than an official release.
 
-The refresh baseline is OpenClaw `05c501ab7e` (2026-09-15). Current Gateway
-protocol v4/node minimum v3 and the invoke/input/progress/result/cancel
-envelopes remain compatible. Before these rows can be treated as current
-evidence, #116050 must re-extract the shared client from current Tauri without
-losing Gateway profiles, credential references, switching, or recovery;
-#116450 must regenerate authority, reapproval, revocation, lifecycle, and
-readiness fixtures from current behavior; and #116863 must be rebuilt on that
-foundation. New TypeScript worker/session, workspace, plugin, runner-inventory,
-and host-statistics features remain outside bounded Rust v1 unless separately
-accepted.
+Current Gateway protocol v4/node minimum v3 and the
+invoke/input/progress/result/cancel envelopes remain compatible. TypeScript
+worker/session, workspace, plugin, runner-inventory, and host-statistics
+features remain outside bounded Rust v1 unless separately accepted.
 
-Known gaps are a production/deployed Gateway run for the latest Rust heads,
-platform signing/provenance and packaged artifact discovery/update,
-implementation of the specified Gateway connection-control messages and their
-Rust/adopter fixture consumers, live Gateway/pairing/token integration through
-the sidecar, crash/circuit-breaker/
-resource/rollback proof, an embedding/product audit adapter, explicit
-authorization for the reserved `system.*` namespace, supported artifact
-publication, and maintainer ownership acceptance.
+Known gaps are final hosted proof for #150329/#150344, exact-head disposable
+macOS package/signing/install/upgrade/rollback and functional/performance proof
+for #149725, implementation of the complete Gateway connection-control fixture,
+live Gateway/pairing/token integration through the packaged sidecar,
+crash/circuit-breaker/resource/rollback proof, an embedding/product audit
+adapter, explicit authorization for the reserved `system.*` namespace,
+supported artifact publication, and named release ownership.
 
 ## Promotion and deletion ledger
 

@@ -3,7 +3,7 @@ title: OpenClaw-owned Rust node runtime
 authors:
   - Gio Della-Libera
 created: 2026-07-29
-last_updated: 2026-07-31
+last_updated: 2026-09-16
 status: draft
 issue:
 rfc_pr: https://github.com/openclaw/rfcs/pull/54
@@ -38,16 +38,14 @@ acceptance. Normal OpenClaw maintainership, review, and CODEOWNERS processes can
 evolve with the implementation. Later release or scope expansion requires the
 separate gates in this RFC and its companion specifications.
 
-The implementation drafts are being refreshed against OpenClaw
-`05c501ab7e` (2026-09-15). The wire-level node invocation contract remains
-compatible, but both reference implementations have evolved materially since
-the August draft heads. TypeScript added worker/session hosting, workspace
-transfer, runner inventory, plugin duplex channels, host statistics, and
-stronger authority and lifecycle enforcement. Linux Tauri added saved and
-remote Gateway profiles, credential references, independent Gateway switching,
-and recovery behavior. The bounded two-crate ownership proposal remains the
-same; the implementation PRs must be re-derived from current source and their
-evidence rerun before review.
+The bounded two-crate foundation was re-derived from current OpenClaw behavior
+and merged on 2026-09-16 through #116050, #116450, and #116863. TypeScript
+remains authoritative for protocol, pairing, approvals, policy, and command
+semantics. A permanent bilateral conformance gate is under review in #150329,
+while #150344 and the draft macOS adopter #149725 keep credentials, TLS trust,
+native admission, packaging, proxy routing, and rollout with their native
+owners. These follow-ups strengthen conformance and adoption evidence without
+expanding the bounded Rust v1 scope.
 
 ## Motivation
 
@@ -294,28 +292,42 @@ retain authority.
 
 ### Delivery plan
 
-The proposed review shape is three logically stacked OpenClaw implementation
-PRs followed by a smaller sponsored Windows adopter:
+The foundation landed as three OpenClaw implementation PRs in dependency order.
+Follow-up conformance and native-adopter work remains independently reviewable:
 
 1. **OpenClaw foundation:** add the two crates, a role-safe Gateway session, a
    minimal bounded node host, and a Tauri consumer that proves the client is
-   reusable ([openclaw/openclaw#116050](https://github.com/openclaw/openclaw/pull/116050)).
+   reusable ([openclaw/openclaw#116050](https://github.com/openclaw/openclaw/pull/116050),
+   merged as `f9a7f104c22a`).
 2. **OpenClaw embeddable runtime:** add external credential/signing hooks,
    issued-token delivery, the supervised lifecycle, bounded duplex invocation,
    local fail-closed admission, connection-scoped command manifests, and the
-   shared TypeScript/Rust lifecycle corpus. Draft
+   shared TypeScript/Rust lifecycle corpus.
    [openclaw/openclaw#116450](https://github.com/openclaw/openclaw/pull/116450)
-   is the second upstream PR, explicitly dependent on the foundation landing
-   first.
+   merged second as `29069179def6`.
 3. **OpenClaw authenticated sidecar bridge:** add transport-neutral framing,
    negotiation, immutable configuration, an ordinary-command runtime bridge,
    exact cross-language corpora, and a real child-process authenticated IPC test
-   ([openclaw/openclaw#116863](https://github.com/openclaw/openclaw/pull/116863)).
-   This draft is logically stacked on #116450. It defines the shared primitive
-   and proves it across a real process/transport boundary, but deliberately
-   stops before choosing product IPC, protected credential bootstrap, process
-   supervision, or rollout policy.
-4. **Windows adopter:** keep the existing C# runtime as the production default
+   ([openclaw/openclaw#116863](https://github.com/openclaw/openclaw/pull/116863),
+   merged third as `ce4f1d711bbc`). It defines the shared primitive and proves it
+   across a real process/transport boundary, but deliberately stops before
+   choosing product IPC, protected credential bootstrap, process supervision,
+   or rollout policy.
+4. **Permanent cross-language gate:** independently validate the bounded
+   TypeScript and Rust node lifecycle against the same request, input, progress,
+   result, cancellation, authority, and cleanup fixtures
+   ([openclaw/openclaw#150329](https://github.com/openclaw/openclaw/pull/150329)).
+5. **Reusable native ownership seams:** let native products retain credentials,
+   signing, TLS trust, admission, request lifetime, and control-path ownership
+   without moving those decisions into Rust
+   ([openclaw/openclaw#150344](https://github.com/openclaw/openclaw/pull/150344)).
+6. **macOS adopter:** validate those seams through a signed helper, Swift
+   adapter, product packaging, system proxy/PAC compatibility, and native
+   lifecycle probes
+   ([openclaw/openclaw#149725](https://github.com/openclaw/openclaw/pull/149725)).
+   This remains a draft adopter decision rather than a mandatory production
+   transport.
+7. **Windows adopter:** keep the existing C# runtime as the production default
    while adding only the smallest replaceable runtime boundary and protected
    adapter proof needed to consume the accepted contracts. The earlier
    [openclaw-windows-node#1068](https://github.com/openclaw/openclaw-windows-node/pull/1068)
@@ -333,12 +345,13 @@ authenticated runtime offer to match that verified identity
 It remains non-selectable source evidence rather than another upstream
 implementation PR or a packaged production runtime.
 
-The next proposed OpenClaw slice implements the product-neutral sidecar Gateway
-connection-control contract defined here: per-attempt material acquisition,
-external signing, issued-token acknowledgement, and authoritative retirement.
-It does not move secure storage, endpoint authorization, process supervision,
-or product policy into Rust. A matching adopter slice can then replace the
-current environment-based live-Gateway proof with the protected sidecar path.
+#150344 and #149725 now exercise the native-owner boundary for per-attempt
+material, external signing, TLS trust, request lifetime, and independently
+scheduled keepalive control. They do not move secure storage, endpoint
+authorization, process supervision, proxy policy, or product policy into Rust.
+The complete product-neutral connection-control fixture, durable issued-token
+acknowledgement, and authoritative generation retirement remain separate
+conformance requirements.
 
 The earlier fork drafts #186-#191 remain detailed evidence history for #116450,
 and closed fork drafts #193-#195 remain detailed evidence history for #116863.
@@ -346,13 +359,13 @@ Their commits remain intact in the consolidated branches, so the review shape
 does not hide the native-signing, lifecycle, duplex, authority, manifest,
 sidecar-protocol, negotiation, or runtime-bridge boundaries.
 
-After those reviews, adoption proof must demonstrate the authenticated,
-versioned Windows adapter and a Scout Cloud management flow against a real
-Gateway, including cancellation, revocation, reconnect, crash recovery,
-readiness, rollback, and audit evidence. Sidecar proof also measures startup
-and steady-state resource cost. API stability, artifacts, SBOM/signing,
-compatibility windows, servicing, and support ownership remain explicit release
-decisions before the crates are declared generally supported.
+Before production adoption, each product must demonstrate its authenticated,
+versioned adapter against a real Gateway, including cancellation, revocation,
+reconnect, crash recovery, readiness, install/upgrade/rollback, proxy behavior,
+and audit evidence. Sidecar proof must also measure startup and steady-state
+resource cost. API stability, artifacts, SBOM/signing, compatibility windows,
+servicing, and support ownership remain explicit release decisions before the
+crates are declared generally supported.
 
 The closed Windows #1068 draft demonstrated an injectable node-runtime contract
 and a Windows-owned capability dispatcher shared by the current C# transport

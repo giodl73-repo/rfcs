@@ -7,25 +7,27 @@ semantics.
 
 ## Reviewed heads
 
-| Repository / surface | Reviewed head | Status |
+| Repository / surface | Landed or reviewed head | Status |
 | --- | --- | --- |
-| `openclaw/openclaw` foundation PR #116050 | `1aaec0c5a56` | Draft; August evidence head, being re-derived from current Tauri rather than mechanically rebased |
-| `openclaw/openclaw` follow-up PR #116450 | `bfd5c4d14e2` | Draft; stale/conflicted August evidence, pending refreshed #116050 and current authority/lifecycle fixtures |
-| `openclaw/openclaw` sidecar PR #116863 | `71c1c8cb23c` | Draft; stale/conflicted August evidence, pending refreshed #116450 |
-| `openclaw/openclaw` cancellation contract PR #115390 | `3cac3e4a3aa` | Draft; required `{ invokeId, nodeId }` schema consumed by TypeScript and Swift |
+| `openclaw/openclaw` foundation PR #116050 | `f9a7f104c22` | Merged 2026-09-16; shared Gateway client, bounded host, and Linux Tauri consumer |
+| `openclaw/openclaw` lifecycle PR #116450 | `29069179def` | Merged 2026-09-16; native ownership hooks and bounded embeddable lifecycle |
+| `openclaw/openclaw` sidecar PR #116863 | `ce4f1d711bb` | Merged 2026-09-16; authenticated sidecar bridge and separate-process proof |
+| `openclaw/openclaw` conformance PR #150329 | `0a40c890e53` | Open; permanent bilateral TypeScript/Rust lifecycle and authority gate |
+| `openclaw/openclaw` native seams PR #150344 | `ffac53d92ce` | Open; reusable signing, TLS trust, admission, request-lifetime, and keepalive seams |
+| `openclaw/openclaw` macOS adopter PR #149725 | `ab851a5d4e8` | Draft, stacked on #150344; helper, Swift adapter, package/signing integration, proxy-safe routing, and native probes |
 | `openclaw/openclaw-windows-node` PR #1068 | `711fe095` | Closed 2026-09-02 without merge; prior seam/adapter evidence only |
 | Experimental Rust launch proof #12 | `3d1357f` | Draft, fork-only; protected bootstrap plus deterministic pinned aggregate evidence |
 | Experimental Windows launch proof #4 | `199eaa1fcba` | Draft, fork-only; path-locked verified launcher and mandatory artifact identity |
-| `openclaw/rfcs` RFC #54 | Current PR head | Draft ownership decision; this inventory is refreshed with each evidence change |
+| `openclaw/rfcs` RFC #54 | Current PR head | Ownership decision updated after the foundation merged and native adoption was isolated |
 | Experimental `openclaw-rust-node` evidence repository | `1438657c43c` plus refresh branch | Incubation and conformance source projected into OpenClaw PRs; not an independent protocol authority or official distribution |
 
 Exact heads must be refreshed before approval or release.
 
-The current comparison baseline is `openclaw/openclaw` `05c501ab7e`
-(2026-09-15). Protocol v4/node minimum v3 and the bounded invocation envelopes
-remain compatible. The TypeScript host and Linux Tauri application have
-otherwise evolved materially, so the August implementation heads below are
-historical evidence until their current-main replacements pass the same gates.
+The implementation was re-derived from current OpenClaw behavior and landed on
+2026-09-16. Protocol v4/node minimum v3 and the bounded invocation envelopes
+remain compatible. Newer TypeScript worker/session, workspace-transfer, plugin,
+runner-inventory, and host-statistics behavior remains outside Rust v1 unless
+separately accepted.
 
 ## Canonical contract owners
 
@@ -169,25 +171,26 @@ policy, or rollout controls to the product.
 
 | Evidence | Environment | Result | Limitation |
 | --- | --- | --- | --- |
-| Foundation Rust workspace | Ubuntu 24.04 WSL2, Rust 1.93, `1aaec0c5a56` | 56 tests; strict Clippy/format/diff pass; Gateway challenge timestamp shared by Tauri and node-host | No deployed production Gateway at latest head |
-| Foundation host/socket proof | Ubuntu 24.04 WSL2, Rust 1.93, `13242763f3d` | Health 200, pre-ready 503, clean shutdown, real loopback invocation | Earlier proof head; in-process Gateway harness |
-| Linux Tauri suite | Linux proof head | 98/98 passed | Not a packaged desktop UI build |
-| Embeddable stack | Ubuntu 24.04 WSL2, Rust 1.93, `bfd5c4d14e2` | 73 workspace tests; strict Clippy/format/diff and Swift/Kotlin protocol-generation checks pass; native `paramsJSON` remains nullable string | Android generator output is verified, but the local Android unit test is pending a Java-enabled hosted lane |
-| Shared fixtures | Rust current-head consumer plus canonical TypeScript validators | Rust lifecycle and Gateway-authority consumers plus focused TypeScript schema/integration tests pass at `bfd5c4d14e2` | Live production-Gateway compatibility remains a release gate |
-| OpenClaw sidecar bridge | Rust workspace, `71c1c8cb23c` | 124 workspace tests; strict Clippy/format/diff pass; exact three-corpus proof plus a separate OS child completing authenticated configuration/manifest acknowledgement, admission, invocation, and result over real TCP IPC | Test process/transport; no protected bootstrap, artifact verification, product supervisor, or live Gateway |
+| Merged foundation | Rust 1.93 plus Linux Tauri, #116050 `f9a7f104c22` | Shared workspace, strict static gates, Tauri unit/integration suites, bounded socket/runtime proof | No supported standalone artifact or release promise |
+| Merged embeddable lifecycle | Rust 1.93, #116450 `29069179def` | External signing/token delivery, admission, duplex lifecycle, cancellation, manifest, and cleanup proof | Product credentials, policy, persistence, and native tools remain adapter-owned |
+| Merged sidecar bridge | Rust 1.93, #116863 `ce4f1d711bb` | 141 stacked Rust tests and 2/2 authenticated separate-process proofs passed before merge | Shared primitive only; no product package, supervisor, or rollout |
+| Permanent conformance gate | #150329 `0a40c890e53` | 140 locked Rust tests, 166 focused TypeScript contract/registry tests, 639 workflow-guard tests, strict Rust static gates and formatting | Hosted exact-head checks must remain green as either implementation evolves |
+| Reusable native seams | #150344 `ffac53d92ce` | 148 Rust tests and strict static gates; review found no significant issue after hostname-bound trust and fair control-channel fixes | Final hosted Swift/macOS proof is running |
+| macOS adopter | #149725 `ab851a5d4e8` | Focused helper/adapter stack with authenticated IPC, exact JSON, native admission, TLS, cancellation, saturation, proxy/PAC fallback, packaging, signing, and probe harnesses | Exact-head disposable-macOS install/upgrade/rollback and functional/performance proof remains required |
 | Closed Windows adopter | Windows 11, `711fe095` | 3,701 Shared tests and 22 focused Connection tests passed; the prior head additionally passed the full build, exact three-corpus reproduction, 60 focused, 2,023 Tray, and 519 Connection tests | PR #1068 closed without merge on 2026-09-02; evidence informs a smaller sponsored replacement but is not current adoption proof |
 | Protected process launch | Windows 11, Rust `3d1357f`, Windows `199eaa1fcba` | 122 shared Rust and 64 focused Windows tests; three exact fixture blobs; deterministic junction-path, hash, and handshake-identity rejection; private bootstrap and real invocation | Test artifact and source harness; no platform signature, package/update or production selection |
 | Windows live MXC | Windows host + isolated Ubuntu WSL + live loopback Gateway | 2/2 allowed/denied `system.run` cases pass | Proves shared dispatcher on C# default path |
 | Experimental package acceptance | Linux x64, Windows x64, macOS ARM64 | Build/checksum/extract/execute evidence | Separate experimental repository |
 | Dependency/SBOM/provenance | Experimental repository PRs #5/#6 | RustSec, CycloneDX, repository-bound attestations | Not an OpenClaw-supported release |
 
-The shared fixture files are
+The shared fixture files include
 `test/fixtures/node-invoke-lifecycle-contract.json` and
-`test/fixtures/node-runtime-integration-contract.json`; both have TypeScript and
-Rust consumers at the reviewed stacked head. The Rust consumer passed at the
-current head. The final TypeScript validator execution remains pending after a
-repeated package-registry TLS failure; hosted TypeScript lanes passed before the
-final UTF-8 validator correction.
+`test/fixtures/node-runtime-integration-contract.json`. #150329 makes the
+lifecycle fixture bilateral across request, input, progress, result, and
+cancellation and keeps both TypeScript and Rust consumers in a dedicated,
+path-scoped workflow. Sidecar handshake, negotiation, protocol, and runtime
+fixtures remain Rust/native-adopter contracts rather than false TypeScript node
+host parity.
 
 ## Capability gap inventory
 
@@ -196,7 +199,7 @@ final UTF-8 validator correction.
 | Gateway session | Implemented draft | Ownership, compatibility and release acceptance |
 | Basic node invocation | Implemented draft | Shared canonical fixtures and current-head live Gateway proof |
 | Duplex input/progress/cancel | Implemented draft | Complete published node-event corpus and cross-language proof |
-| Sidecar IPC | The August #116863 head proves authenticated framing across a real OS child and TCP transport; closed Windows #1068 and fork #12/#4 provide prior adapter, anonymous-pipe, exact-hash, protected-bootstrap, and handshake-binding evidence; RFC connection-control contract is drafted but unimplemented | Refresh the shared contract, implement new current consumers including protected product-selected IPC, and prove platform signing/package delivery plus live Gateway, audit, crash, resource, rollout and rollback behavior |
+| Sidecar IPC | Merged #116863 proves authenticated framing across a real OS child; #150344 exposes reusable native ownership seams; macOS #149725 exercises a signed helper and Swift adapter; closed Windows #1068 and fork #12/#4 remain prior protected-launch evidence | Complete exact-head macOS package and operational proof, implement the remaining connection-control fixture, and prove live Gateway, audit, crash, resource, rollout and rollback behavior |
 | Persistent secure identity/token storage | Embedding seam only | Platform adapter and rotation/revocation proof |
 | Product audit/export adapter | Not implemented | Stable event contract, correlation/redaction proof, real product audit sink |
 | Aggregate retained-event byte budget | Implemented draft: exact count plus aggregate raw-frame bytes; 256 events and 64 MiB by default | Current-head compatibility and load proof before support |
