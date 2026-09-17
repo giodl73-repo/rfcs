@@ -146,13 +146,13 @@ Current-main evidence now includes:
 - #116050 merged as `f9a7f104c22`, #116450 as `29069179def`, and #116863 as
   `ce4f1d711bb` after exact-head review, focused Rust/Tauri proof, strict static
   gates, and authenticated separate-process proof;
-- #150329 at `0a40c890e53`: a dedicated path-scoped workflow with bilateral
+- #150329 at `232a5d851d9`: a dedicated path-scoped workflow with bilateral
   request/input/progress/result/cancel fixtures, 140 locked Rust tests, 166
   focused TypeScript tests, and 639 workflow-guard tests;
-- #150344 at `ffac53d92ce`: native credential/signing, hostname-bound trust,
+- #150344 at `a97e9bdba67`: native credential/signing, hostname-bound trust,
   admission, request-lifetime, and fair control-channel seams with 148 Rust
   tests and final hosted Swift proof in progress;
-- macOS #149725 at `ab851a5d4e8`: a focused adopter stack with a signed helper,
+- macOS #149725 at `d1ac57f8fd9`: a focused adopter stack with a signed helper,
   Swift adapter, proxy/PAC-safe URLSession fallback, packaging, and native
   probe harnesses;
 - closed Windows #1068: replaceable runtime boundary, shared dispatcher, independent
