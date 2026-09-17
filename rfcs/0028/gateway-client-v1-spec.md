@@ -92,7 +92,8 @@ The default candidate limits are:
 | Connection establishment timeout | 10 seconds |
 | WebSocket write timeout | 10 seconds |
 | Request timeout | 30 seconds |
-| Maximum WebSocket message/frame | 16 MiB |
+| Maximum WebSocket message | 64 MiB |
+| Maximum WebSocket frame | 16 MiB |
 | Retained event capacity | 256 events |
 | Retained raw-event bytes | 64 MiB |
 | Queued plus pending requests | 64 |

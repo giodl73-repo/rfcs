@@ -3,9 +3,9 @@ title: OpenClaw-owned Rust node runtime
 authors:
   - Gio Della-Libera
 created: 2026-07-29
-last_updated: 2026-09-16
-status: draft
-issue:
+last_updated: 2026-09-17
+status: accepted
+issue: https://github.com/openclaw/openclaw/issues/115975
 rfc_pr: https://github.com/openclaw/rfcs/pull/54
 ---
 
