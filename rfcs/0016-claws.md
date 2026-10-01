@@ -621,12 +621,14 @@ the new agent to local channels separately.
 
 At public Labs launch, OpenClaw registers the `claws` CLI without an environment
 opt-in. The dedicated Claws switch in Control UI Labs is off by default and
-controls discovery and new Add affordances in that UI, not host authorization
-or CLI/Gateway access.
+controls discovery, Add, and Update affordances in that UI, not host
+authorization or CLI/Gateway access.
 Turning it off does not stop installed agents or hide their ordinary agent
-cards and chat. Installed Claws remain available for status, update, and safe
-remove through their management surfaces and the CLI. A package discovered
-through another path never implicitly consents to installation.
+cards and chat. Installed Claws remain available for status and safe remove in
+Control UI; discovery, Add, and Update controls are hidden there while Labs is
+off. The CLI and Gateway retain their lifecycle operations under normal
+authority and consent. A package discovered through another path never
+implicitly consents to installation.
 
 With Labs on, the Agents view may Explore the official ClawHub Claw catalog,
 show package details and the exact Add plan, and enter the new agent's home chat
@@ -952,9 +954,10 @@ ClawHub-to-Control-UI run demonstrate:
 2. Inspect validates package identity, the grouped manifest, recognized
    conventional profile, and optional package-root bootstrap without mutation.
 3. The `claws` CLI is registered without an environment opt-in. The Claws Labs
-   switch controls Control UI discovery and new Add affordances only; turning it
-   off leaves installed agents running and their status, update, and safe
-   removal available. It is not an authorization or consent boundary.
+   switch controls Control UI discovery, Add, and Update affordances only;
+   turning it off leaves installed agents running and their UI status and safe
+   removal available. CLI and Gateway lifecycle operations remain available;
+   Labs is not an authorization or consent boundary.
 4. Add dry-run shows one new agent, one new workspace, every file/package/MCP/
    cron action, all collisions, and stable machine-readable blockers.
 5. An existing agent id or workspace blocks add unless an explicit unused

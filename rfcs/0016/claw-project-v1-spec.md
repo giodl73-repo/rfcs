@@ -53,7 +53,7 @@ openclaw claws build [path] --out <artifact.tgz> [--json]
 ```
 
 At public Labs launch, these commands are registered without an environment
-opt-in. The Control UI Labs switch governs only Claw discovery and new Add
+opt-in. The Control UI Labs switch governs only Claw discovery, Add, and Update
 affordances in that UI.
 
 ## Create
