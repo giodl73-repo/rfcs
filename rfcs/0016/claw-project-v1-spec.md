@@ -53,8 +53,10 @@ openclaw claws build [path] --out <artifact.tgz> [--json]
 ```
 
 At public Labs launch, these commands are registered without an environment
-opt-in. The Control UI Labs switch governs only Claw discovery, Add, and Update
-affordances in that UI.
+opt-in and remain available when Claws is off in Labs. The persisted
+`gateway.controlUi.experimental.claws` setting instead gates new catalog
+discovery, Add, Update, and operator-invoked Claw migration through Control UI,
+Gateway, and CLI. `OPENCLAW_EXPERIMENTAL_CLAWS` does not bypass the setting.
 
 ## Create
 

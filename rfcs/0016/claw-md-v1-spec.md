@@ -11,8 +11,10 @@ Status: draft experimental contract, tied to RFC 0016.
 
 The experimental implementation reads `CLAW.md` and equivalent grouped JSON,
 and exports `CLAW.md`. Both forms use the same schema and lifecycle. At public
-Labs launch, the Control UI switch controls discovery, Add, and Update
-affordances, not parsing, CLI registration, or authorization.
+Labs launch, the persisted Claws switch gates new catalog discovery, Add,
+Update, and operator-invoked Claw migration through Control UI, Gateway, and
+CLI. It does not disable parsing, local inspection, authoring, status, export,
+or removal.
 
 `CLAW.md` is a portable prompt envelope over the grouped schema. A
 non-whitespace body maps to the harness's managed agent-instruction primitive;

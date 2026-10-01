@@ -3,7 +3,7 @@ title: Claws
 authors:
   - Gio
 created: 2026-07-03
-last_updated: 2026-09-30
+last_updated: 2026-10-01
 status: draft
 rfc_pr: https://github.com/openclaw/rfcs/pull/48
 ---
@@ -617,18 +617,30 @@ the new agent to local channels separately.
 
 ### CLI and lifecycle
 
-#### Labs visibility and experimental status
+#### Labs availability and experimental status
 
 At public Labs launch, OpenClaw registers the `claws` CLI without an environment
-opt-in. The dedicated Claws switch in Control UI Labs is off by default and
-controls discovery, Add, and Update affordances in that UI, not host
-authorization or CLI/Gateway access.
-Turning it off does not stop installed agents or hide their ordinary agent
-cards and chat. Installed Claws remain available for status and safe remove in
-Control UI; discovery, Add, and Update controls are hidden there while Labs is
-off. The CLI and Gateway retain their lifecycle operations under normal
-authority and consent. A package discovered through another path never
-implicitly consents to installation.
+opt-in. The dedicated Claws switch in Control UI Labs writes the persisted
+`gateway.controlUi.experimental.claws` setting. Missing or false means off;
+headless operators may set it explicitly. `OPENCLAW_EXPERIMENTAL_CLAWS` is
+neither required nor an alternate way to enable the feature.
+
+The same setting gates Claw catalog discovery and Add and Update planning and
+application across Control UI, Gateway, and CLI. Operator-invoked Claw
+migration that creates or changes an installed Claw is gated as well; internal
+storage maintenance needed for status or removal is not. A new request for one
+of those gated operations while Labs is off must fail with an explicit disabled
+result; hiding a UI control alone is insufficient. An Add or Update already
+admitted before the switch is turned off may finish or recover under its
+reviewed plan, rather than being interrupted after partial mutation.
+
+Turning Labs off does not stop installed agents or hide their ordinary agent
+cards and chat. Status, doctor, export, and safe Remove remain available through
+their supported surfaces, including Control UI status and Remove. Local inspect
+and project authoring remain available. The switch is a feature-availability
+gate, not installation consent or a substitute for host
+authorization and safety checks. A package discovered through another path
+never implicitly consents to installation.
 
 With Labs on, the Agents view may Explore the official ClawHub Claw catalog,
 show package details and the exact Add plan, and enter the new agent's home chat
@@ -916,11 +928,12 @@ Before merging this RFC or any public-launch implementation PR, or deploying
 the public Labs path, run a real local ClawHub instance and an OpenClaw Control
 UI against it. Publish a representative `@openclaw/*` Claw with a plugin, then
 prove search, artifact download, plan review, plugin-capability consent, Add,
-a real agent task using the plugin, status, update, Labs-off continued
-operation, and safe remove. Committed registry fixtures cover faster OpenClaw
-tests; the local cross-repository run is release evidence, not a committed test
-harness. Production ClawHub search and verified
-packages must be available before OpenClaw exposes the public Labs switch.
+a real agent task using the plugin, status, update, Labs-off rejection of new
+discovery/Add/Update, continued agent operation, and safe remove. Committed
+registry fixtures cover faster OpenClaw tests; the local cross-repository run
+is release evidence, not a committed test harness. Production ClawHub search
+and verified packages must be available before OpenClaw exposes the public
+Labs switch.
 
 ### Implementation authority and consolidation
 
@@ -953,11 +966,14 @@ ClawHub-to-Control-UI run demonstrate:
    dev, and build are read-only outside their declared project/artifact outputs.
 2. Inspect validates package identity, the grouped manifest, recognized
    conventional profile, and optional package-root bootstrap without mutation.
-3. The `claws` CLI is registered without an environment opt-in. The Claws Labs
-   switch controls Control UI discovery, Add, and Update affordances only;
-   turning it off leaves installed agents running and their UI status and safe
-   removal available. CLI and Gateway lifecycle operations remain available;
-   Labs is not an authorization or consent boundary.
+3. The `claws` CLI is registered without an environment opt-in. The persisted
+   `gateway.controlUi.experimental.claws` setting defaults off and gates new
+   catalog discovery, Add, Update, and operator-invoked Claw migration across
+   Control UI, Gateway, and CLI; `OPENCLAW_EXPERIMENTAL_CLAWS` cannot bypass it.
+   Turning Labs off leaves installed agents and chat running and preserves
+   status, doctor, export, local authoring, and safe removal. Already-admitted
+   mutations may settle under their reviewed plans. The switch is not consent
+   or a substitute for host authorization.
 4. Add dry-run shows one new agent, one new workspace, every file/package/MCP/
    cron action, all collisions, and stable machine-readable blockers.
 5. An existing agent id or workspace blocks add unless an explicit unused
