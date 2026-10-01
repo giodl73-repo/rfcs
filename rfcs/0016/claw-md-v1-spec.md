@@ -151,7 +151,9 @@ The shipped compatibility key `metadata.openclaw.config` may point to a safe
 package-relative `.yml` or `.yaml` OpenClaw profile. OpenClaw accepts it with a
 deprecation warning. It must not conflict with a different conventional
 `profiles/openclaw.yml`. Canonical producers omit the key and use the
-conventional path.
+conventional path. Consumer compatibility does not make this deprecated key
+publishable: a registry may reject it for new packages under a documented
+admission policy.
 
 Harness profiles are package sidecars, not nested manifest values. OpenClaw
 recognizes `profiles/openclaw.yml` and binds its exact bytes into source
