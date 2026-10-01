@@ -10,8 +10,9 @@ Status: draft experimental contract, tied to RFC 0016.
 ## Incubation Status
 
 The experimental implementation reads `CLAW.md` and equivalent grouped JSON,
-and exports `CLAW.md`. Both forms use the existing
-`OPENCLAW_EXPERIMENTAL_CLAWS=1` gate; there is no format-specific flag.
+and exports `CLAW.md`. Both forms use the same schema and lifecycle. At public
+Labs launch, the Control UI switch controls discovery and new Add affordances,
+not parsing, CLI registration, or authorization.
 
 `CLAW.md` is a portable prompt envelope over the grouped schema. A
 non-whitespace body maps to the harness's managed agent-instruction primitive;
@@ -187,8 +188,8 @@ other managed workspace file. Consumers must reject an undeclared local avatar
 path.
 
 The manifest must not declare models, providers, thinking levels, credentials,
-channel accounts, channel bindings, local default selection, or an existing
-workspace path. Those remain operator-owned.
+channel accounts, channel bindings, named delegate agents, local default
+selection, or an existing workspace path. Those remain operator-owned.
 
 ## Workspace
 

@@ -3,9 +3,9 @@ title: Claws
 authors:
   - Gio
 created: 2026-07-03
-last_updated: 2026-08-12
+last_updated: 2026-09-30
 status: draft
-rfc_pr: https://github.com/openclaw/rfcs/pull/27
+rfc_pr: https://github.com/openclaw/rfcs/pull/48
 ---
 
 # Proposal: Claws
@@ -35,11 +35,12 @@ and `export`. The public authoring lifecycle is `create`, `validate`, `dev`, and
 `install` and `uninstall` remain the underlying operations for individual
 skills and plugins.
 
-OpenClaw's shipped Claws implementation is the reference behavior for this
-contract. This RFC standardizes the portable package, authoring, and lifecycle
-invariants around that working owner system. It does not transfer OpenClaw's
-catalogs, runtime policy, rendering, publication, or review policy into a
-central cross-harness owner.
+OpenClaw's shipped experimental Claws implementation is the starting point for
+this contract. The Labs launch must also implement the explicit corrections in
+this RFC before claiming conformance. This RFC standardizes the portable
+package, authoring, and lifecycle invariants around that owner system. It does
+not transfer OpenClaw's catalogs, runtime policy, rendering, publication, or
+review policy into a central cross-harness owner.
 
 ## Motivation
 
@@ -71,7 +72,7 @@ adopting or merging into an existing agent or managed workspace.
 
 - Make a complete job-specific agent distributable as plain, reviewable data.
 - Preserve the one-Claw-one-new-agent invariant across CLI, schema, provenance,
-  updates, removal, export, feeds, and future UI.
+  updates, removal, export, feeds, and Control UI.
 - Keep individual skill and plugin packages on their existing install and
   safety paths.
 - Create agent workspaces without modifying existing agents or operator
@@ -126,7 +127,7 @@ principles.
 | Public schema | The manifest uses strict grouped `agent`, `metadata`, `workspace`, `packages`, `mcpServers`, and `cronJobs` fields rather than a generic flat entry list. |
 | Completeness | Every declared component is part of the Claw. Unsupported, blocked, or invalid components block `add`; there is no optional `required` flag. |
 | Package identity | Package name and version come from the enclosing package metadata and authenticated publish operation, following the ClawHub plugin precedent. |
-| Operator control | Models, providers, credentials, channel bindings, and local runtime defaults are not portable Claw settings. |
+| Operator control | Models, providers, credentials, channel bindings, named delegates, and local runtime defaults are not portable Claw settings. |
 | Agent configuration | Portable identity stays in `agent`; OpenClaw-specific operating policy stays in the strict conventional `profiles/openclaw.yml` sidecar. |
 | Prompt | A non-whitespace `CLAW.md` body is the portable prompt; OpenClaw materializes it as managed `SOUL.md`. |
 | First run | Package-root `BOOTSTRAP.md` is a seed-once native bootstrap input, not an ordinary managed workspace file. |
@@ -213,10 +214,9 @@ behavior with an explicit `workspace.bootstrapFiles["SOUL.md"]` source. Export
 emits `CLAW.md`; JSON remains a fully supported serialization of the same
 grouped schema.
 
-Both representations are covered by the existing
-`OPENCLAW_EXPERIMENTAL_CLAWS=1` gate. `CLAW.md` adds only reader/export format
-adaptation and no schema, lifecycle, provenance, or ownership branch. While the
-RFC remains experimental, maintainers may revise or remove that envelope before
+Both representations use the same schema, lifecycle, provenance, and ownership
+rules. `CLAW.md` adds only reader/export format adaptation. While the RFC
+remains experimental, maintainers may revise or remove that envelope before
 graduation without creating a separate compatibility promise.
 
 Feeds and registries materialize an exact package version and integrity before
@@ -301,7 +301,7 @@ The initial public shape is grouped by OpenClaw ownership boundary:
 The schema version 1 field set, validation rules, JSON representation,
 `CLAW.md` envelope, conventional OpenClaw profile, package-root bootstrap, and
 project lifecycle are normative for the experimental implementation.
-Implementation slices may land separately behind the experimental gate, but a
+Implementation slices may land separately, but a
 producer or consumer must not claim schema v1 conformance until it implements
 the complete grouped data model. Version 1 is strict: new portable fields,
 semantic changes, and ownership changes require a new schema version so
@@ -340,12 +340,17 @@ runtime behavior or carries executable configuration.
 The following remain operator controlled and are rejected in a Claw manifest:
 
 - model, provider, thinking level, and runtime implementation;
+- named delegate agents or package-selected subagent policy;
 - API keys, OAuth state, credentials, or secret values;
 - channel account ids, group ids, and bindings;
 - default-agent selection and global `agents.defaults`;
 - `agent.skills` allowlists;
 - arbitrary config fragments, custom tool profiles, memory provider/storage
   tuning, or unknown future agent fields.
+
+The OpenClaw profile rejects these fields as well. A Claw may request the
+ordinary `sessions_spawn` tool through a bounded tool grant when host policy
+permits it; that is not authority to name delegate agents or set their policy.
 
 The generated `agents.entries` member inherits operator defaults. Add inserts
 one member keyed by the final agent id and does not rewrite existing entries or
@@ -612,43 +617,32 @@ the new agent to local channels separately.
 
 ### CLI and lifecycle
 
-#### Experimental incubation gate
+#### Labs visibility and experimental status
 
-While Claws remain experimental, every Claws CLI surface is gated behind the
-process-level opt-in `OPENCLAW_EXPERIMENTAL_CLAWS=1`.
+At public Labs launch, OpenClaw registers the `claws` CLI without an environment
+opt-in. The dedicated Claws switch in Control UI Labs is off by default and
+controls discovery and new Add affordances in that UI, not host authorization
+or CLI/Gateway access.
+Turning it off does not stop installed agents or hide their ordinary agent
+cards and chat. Installed Claws remain available for status, update, and safe
+remove through their management surfaces and the CLI. A package discovered
+through another path never implicitly consents to installation.
 
-When the gate is absent or false:
+With Labs on, the Agents view may Explore the official ClawHub Claw catalog,
+show package details and the exact Add plan, and enter the new agent's home chat
+after a successful Add. The launch catalog is limited to approved `@openclaw/*`
+Claws; ClawHub remains the package authority. Labs visibility does not bypass
+dependency policy, safety checks, or the separate installation consent.
 
-- OpenClaw does not register the `claws` command;
-- Claws do not appear in default help, shell completions, or onboarding;
-- no background service, update flow, or Gateway startup path reads or applies
-  Claw state;
-- encountering Claw package metadata through an ordinary install path does not
-  implicitly enable the experiment.
-
-The hosted experimental guide is intentionally public and may appear in the
-documentation navigation while the local command is disabled. Static hosted
-documentation cannot observe a process environment variable, so it labels the
-feature experimental and shows the opt-in explicitly. Public documentation is
-not a stability promise and does not enable any local runtime surface.
-
-The gate is intentionally an environment opt-in rather than a persisted config
-field. Internal launchers, test lanes, and controlled deployments can enable it
-for a process, but users do not acquire a durable experimental setting that is
-silently carried into later releases or fleet config.
-
-When enabled, text-mode commands print a concise experimental compatibility
-warning before mutation, and machine-readable results include
+While experimental, text-mode commands print a concise compatibility warning
+before mutation, and machine-readable results include
 `stability: "experimental"` plus their exact output schema version. During the
 experimental period, CLI flags, JSON result shapes, and SQLite
 tables may change without backward-compatibility guarantees. Destructive
-commands still require their normal explicit consent; the experimental gate is
-not consent and does not weaken any safety check.
-
-Removing the gate is a separate maintainer decision after this RFC is accepted.
-That graduation PR must define released migration behavior, stable CLI and JSON
-contracts, documentation, and compatibility policy. Shipping experimental code
-does not itself establish those contracts.
+commands still require their normal explicit consent. The Labs switch is not
+consent and does not weaken any safety check. Stable CLI, JSON, and migration
+contracts require a separate maintainer decision; removing the environment
+opt-in does not itself establish them.
 
 The public CLI is:
 
@@ -812,6 +806,10 @@ ClawHub owns authenticated publication, package ownership, search/detail/API
 surfaces, hosted feed export, and authoring guidance. OpenClaw owns manifest
 validation, planning, local mutation, provenance, and lifecycle behavior. Both
 must share the schema and fixtures rather than maintain divergent validators.
+The first public Labs catalog exposes only reviewed `@openclaw/*` Claws. A
+catalog listing is a discovery aid, not approval of its dependencies or consent
+to local mutation. Local development sources remain valid CLI inputs without
+ClawHub publication.
 
 ### Safety and security
 
@@ -838,6 +836,17 @@ must share the schema and fixtures rather than maintain divergent validators.
   `--plan-integrity` binds the exact separately disclosed capability set as
   well as ordinary content reconciliation. Other hosts may require a separate
   dialog or aggregate those records before mutating multiple agents.
+- Plugin-bearing Claws use the canonical plugin owner's preflight, capability
+  review, and install path. The review names the exact plugin artifact and
+  effective capabilities, including enablement and tool grants, and binds them
+  to the Claw plan integrity. The installer revalidates that effect at the
+  mutation boundary; a changed artifact, capability set, or owner state
+  requires a new review. Denial before the first mutation creates no Claw
+  state and leaves an installed Claw unchanged. If revalidation fails after an
+  external mutation began, later phases stop and completed or uncertain owner
+  effects remain visible as a partial outcome for recovery. Official catalog
+  status or prior plugin approval cannot stand in for the current plan's
+  consent.
 - ClawHub trust warnings and resolved dependency identity are part of the
   separately disclosed capability effect and plan integrity. The Claw CLI's
   exact plan confirmation may acknowledge that warning; an internal
@@ -856,7 +865,7 @@ those boundaries reviewable; plan-first mutation, provenance, and conservative
 cleanup make composition safer than an opaque setup script or whole-instance
 export. The tradeoff is a broader lifecycle than an ordinary package manager,
 which is why the RFC uses `add`/`remove`, explicit partial outcomes, and an
-experimental gate rather than promising cross-owner atomicity.
+experimental compatibility label rather than promising cross-owner atomicity.
 
 ## Compatibility and migration
 
@@ -867,8 +876,9 @@ The earlier prototype used `openclaw.claw.v1`, a flat `entries[]` list, and
 `claws apply` against a caller-selected workspace. That prototype is not the
 accepted public compatibility contract. Before any implementation PR is made
 ready, it must be restacked around the grouped schema and one-new-agent
-invariant. Prototype SQLite tables may be discarded or migrated while the feature remains
-experimental; the released migration promise is set when the gate is removed.
+invariant. Prototype SQLite tables may be discarded or migrated while the
+feature remains experimental; removing the former environment opt-in does not
+set the released migration promise.
 
 ## Rollout plan
 
@@ -896,15 +906,27 @@ Implementation should widen the trust boundary in reviewable slices:
    and resources, separating read-only planning from consented mutation.
 9. **Export and round trip.** Export a selected agent to package metadata,
    grouped manifest, and safe sidecars; prove export-to-add in a fresh state dir.
-10. **ClawHub publication and feeds.** Share schema fixtures, publish a package,
-    expose it through hosted feeds, and prove source resolution and add dry-run.
+10. **ClawHub publication and Control UI.** Share schema fixtures, publish a
+    package, expose it through hosted search and feeds, and prove verified
+    source resolution, reviewed Add, and the installed agent lifecycle.
+
+Before merging this RFC or any public-launch implementation PR, or deploying
+the public Labs path, run a real local ClawHub instance and an OpenClaw Control
+UI against it. Publish a representative `@openclaw/*` Claw with a plugin, then
+prove search, artifact download, plan review, plugin-capability consent, Add,
+a real agent task using the plugin, status, update, Labs-off continued
+operation, and safe remove. Committed registry fixtures cover faster OpenClaw
+tests; the local cross-repository run is release evidence, not a committed test
+harness. Production ClawHub search and verified
+packages must be available before OpenClaw exposes the public Labs switch.
 
 ### Implementation authority and consolidation
 
-The implementation authority for this reconciliation is shipped OpenClaw Claws
-at baseline `f8c0e1b8325b`. The portable contract follows its strict
+The implementation starting point for this reconciliation is shipped OpenClaw
+Claws at baseline `f8c0e1b8325b`. The portable contract follows its grouped
 schema, conventional profile, prompt/body mapping, native bootstrap behavior,
-extension ownership, project commands, and lifecycle tests. Owner-specific
+extension ownership, project commands, and lifecycle tests, subject to the
+launch corrections in this RFC. Owner-specific
 catalog, UI, plugin-mapping, policy, and publication decisions remain with
 OpenClaw and ClawHub rather than becoming portable schema.
 
@@ -922,15 +944,17 @@ markers, and implementation-stack inventories are not part of this contract.
 
 ## Acceptance criteria
 
-The RFC implementation is acceptable when tests and real CLI proof demonstrate:
+The RFC implementation is acceptable when tests, real CLI proof, and the local
+ClawHub-to-Control-UI run demonstrate:
 
 1. Create produces a minimal project that validate accepts offline; validate,
    dev, and build are read-only outside their declared project/artifact outputs.
 2. Inspect validates package identity, the grouped manifest, recognized
    conventional profile, and optional package-root bootstrap without mutation.
-3. Without `OPENCLAW_EXPERIMENTAL_CLAWS=1`, the `claws` command is unregistered,
-   absent from help and completions, and cannot be enabled by package content;
-   the public experimental guide remains non-executable documentation.
+3. The `claws` CLI is registered without an environment opt-in. The Claws Labs
+   switch controls Control UI discovery and new Add affordances only; turning it
+   off leaves installed agents running and their status, update, and safe
+   removal available. It is not an authorization or consent boundary.
 4. Add dry-run shows one new agent, one new workspace, every file/package/MCP/
    cron action, all collisions, and stable machine-readable blockers.
 5. An existing agent id or workspace blocks add unless an explicit unused
@@ -972,6 +996,17 @@ The RFC implementation is acceptable when tests and real CLI proof demonstrate:
 21. Add and update plans disclose capability escalations separately from
     ordinary content, include them in plan integrity, and reject mutation when
     the reviewed capability set changes.
+22. The first public Control UI catalog searches reviewed `@openclaw/*` Claws
+    from ClawHub, downloads an exact verified artifact, shows package details
+    and the Add plan, and opens the installed agent's chat after Add.
+23. A plugin-bearing Claw completes a real task after exact plugin capability
+    review and consent. Denial before mutation leaves state unchanged; a changed
+    effect after mutation stops later phases and retains diagnosable partial
+    state. The real local ClawHub run also proves status, update, Labs-off
+    operation, and safe removal before merge or deployment.
+24. Manifests and OpenClaw profiles reject package-selected models, providers,
+    and named delegates. `sessions_spawn` remains an ordinary bounded tool
+    grant under host policy.
 
 ## Unresolved questions
 
@@ -987,6 +1022,6 @@ The RFC implementation is acceptable when tests and real CLI proof demonstrate:
 - What package transports should mutating v1 support beyond ClawHub and local
   development packages?
 - What released SQLite migration contract is required before the experimental
-  gate is removed?
+  Claws implementation graduates to a stable lifecycle contract?
 - How should OpenClaw and ClawHub publish and version shared conformance
   fixtures without transferring either product's policy ownership?

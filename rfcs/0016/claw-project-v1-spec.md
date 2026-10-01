@@ -3,8 +3,10 @@
 Status: draft experimental contract, tied to RFC 0016.
 
 This document defines the source-project, validation, deterministic-build, and
-offline-development contract implemented by shipped OpenClaw Claws. It does not
-create a second runtime or mutation owner.
+offline-development contract based on shipped experimental OpenClaw Claws.
+The public Labs implementation must also remove the command-registration gate
+as specified below. This document does not create a second runtime or mutation
+owner.
 
 ## Product States
 
@@ -50,7 +52,9 @@ openclaw claws dev [path] [--agent-id <id>] [--workspace <path>] [--json]
 openclaw claws build [path] --out <artifact.tgz> [--json]
 ```
 
-All commands remain behind `OPENCLAW_EXPERIMENTAL_CLAWS=1`.
+At public Labs launch, these commands are registered without an environment
+opt-in. The Control UI Labs switch governs only Claw discovery and new Add
+affordances in that UI.
 
 ## Create
 

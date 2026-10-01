@@ -3,8 +3,9 @@
 Status: draft experimental contract, tied to RFC 0016.
 
 This document defines the OpenClaw-owned harness profile at
-`profiles/openclaw.yml`. Shipped OpenClaw behavior is authoritative for this
-profile. The portable manifest and package lifecycle remain defined by
+`profiles/openclaw.yml`. The public Labs implementation must conform to this
+strict profile even where an earlier experimental build accepted more fields.
+The portable manifest and package lifecycle remain defined by
 `claw-md-v1-spec.md` and `claw-package-v1-spec.md`.
 
 ## Scope
@@ -77,6 +78,12 @@ Tool grants must be bounded. Wildcards, unresolved dynamic groups,
 contains a dynamic selector, `allow` must narrow the effective set to concrete
 tool names accepted by that profile. `alsoAllow` cannot be used without a
 profile. Host policy remains an upper bound.
+
+`sessions_spawn` may be requested as an ordinary concrete tool grant, subject
+to the same host policy as for any agent. Neither the profile nor the portable
+manifest may name existing delegate agents or set subagent routing, allowlists,
+or delegation policy. Model and provider selection are likewise operator-owned
+and rejected as profile fields, including aliases or nested config fragments.
 
 `heartbeat` may contain only:
 
@@ -154,6 +161,12 @@ findings, setup requirements, and redacted effects participate in plan
 integrity. The Claw records a referenced dependency edge and origin; it does not
 gain plugin deletion authority.
 
+Plugin preflight must disclose the canonical owner's effective capability set,
+including enablement and tool grants, before Claw Add or Update consent. Exact
+artifact identity, resolved capabilities, and current owner state are bound to
+the plan; a changed effect requires a fresh review before installation. A
+catalog listing or earlier plugin approval does not substitute for this review.
+
 Existing experimental portable `packages` entries of kind `plugin` remain
 readable. Canonical producers put new OpenClaw-native extension requirements in
 this profile and do not duplicate the same dependency in both locations.
@@ -173,9 +186,9 @@ profile and extension drift without silently changing plugin enablement.
 Remove releases extension dependency edges and retains plugins by default.
 Uninstall is a separately selected canonical plugin-owner operation.
 
-The profile cannot carry models, providers, credentials, bindings, custom tool
-profiles, sender-specific policy, memory providers, remote memory endpoints,
-local storage paths, or indexing tuning.
+The profile cannot carry models, providers, named delegates, subagent policy,
+credentials, bindings, custom tool profiles, sender-specific policy, memory
+providers, remote memory endpoints, local storage paths, or indexing tuning.
 
 ## Conformance
 
@@ -184,6 +197,8 @@ A conforming OpenClaw adapter must:
 - discover and validate the profile as specified;
 - preserve inherited defaults when absent and host policy when present;
 - freeze consent to bounded effective tool and memory policy;
+- review and integrity-bind the canonical plugin owner's effective capabilities
+  before mutating a plugin-bearing Claw;
 - use canonical plugin owners for every extension;
 - fail closed on unsupported settings and required extension failures;
 - bind exact profile bytes and resolved effects into integrity;

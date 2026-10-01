@@ -308,6 +308,17 @@ require a separate capability prompt or aggregate capability records across
 several plans before the first mutation. A changed capability record
 invalidates prior consent in either model.
 
+For a plugin-bearing Claw, the canonical plugin owner must preflight the exact
+artifact and disclose its effective capabilities, including enablement and tool
+grants, in the Claw plan. The plan integrity binds those effects and the owner
+state on which they depend. Add or Update must revalidate them at the mutation
+boundary and require a fresh review if anything changed. Denied consent before
+the first mutation creates no new Claw state and leaves an installed Claw
+unchanged. If revalidation fails after mutation began, later phases stop and
+completed or uncertain effects remain visible through partial-operation
+provenance. Registry approval or prior plugin consent is not a substitute for
+this review.
+
 The OpenClaw application profile marks each escalation record with
 `requiresDistinctConsent: true`. This is a host-facing signal that the change
 must receive distinct disclosure and explicit acknowledgment; it does not by
@@ -582,6 +593,8 @@ A conforming applying client must:
 - discover and validate its conventional profile and native bootstrap;
 - resolve exact dependencies before planning;
 - expose a complete read-only plan and require explicit consent;
+- include canonical plugin preflight and effective capabilities in the reviewed
+  plan, and revalidate those effects before mutation;
 - bind mutation to the consented artifact, destinations, actions, and expected
   owner state;
 - preserve the one-package-one-new-agent invariant;
