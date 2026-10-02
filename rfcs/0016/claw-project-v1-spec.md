@@ -93,6 +93,9 @@ selected content under `.git` or `node_modules`, and selected path collisions.
 
 Validation reports stable structured diagnostics and does not install, enable,
 authenticate, publish, apply, or migrate durable OpenClaw state.
+The default Update exception for an installed local source does not apply to
+project validation, dev, or build; old experimental policy fields require a
+corrected copy before those commands can succeed.
 
 ## Deterministic Build
 

@@ -131,8 +131,10 @@ The top-level value must be an object with these fields:
 | `mcpServers` | object | No | Portable MCP declarations keyed by server name. Defaults to empty. |
 | `cronJobs` | array | No | Agent-pinned scheduled work. Defaults to empty. |
 
-Unknown top-level or nested fields must be rejected. A producer must not use an
-unknown field as a forward-compatible extension point.
+Unknown top-level or nested fields must be rejected except for the recognized
+retired fields read from the recorded local source during default Update of an
+installed Claw, as described below. A producer must not use an unknown field
+as a forward-compatible extension point.
 
 The manifest does not declare `managed`, `referenced`, ownership, uninstall, or
 cleanup fields. The applying harness derives each resource relationship from
@@ -191,9 +193,9 @@ existence, containment, size, copy, digest, provenance, and drift rules as every
 other managed workspace file. Consumers must reject an undeclared local avatar
 path.
 
-The manifest must not declare models, providers, thinking levels, credentials,
-channel accounts, channel bindings, named delegate agents, local default
-selection, or an existing workspace path. Those remain operator-owned.
+A conforming manifest must not declare models, providers, thinking levels,
+credentials, channel accounts, channel bindings, named delegate agents, local
+default selection, or an existing workspace path. Those remain operator-owned.
 
 ## Workspace
 
@@ -422,6 +424,16 @@ Schema evolution requires a new integer `schemaVersion`. Consumers must reject
 unsupported versions rather than partially apply them. New optional fields must
 not be added to version 1 because strict v1 consumers reject unknown fields.
 
+Default Update of an already installed local Claw may read the current snapshot
+at the canonical local source path recorded in provenance, even if its content
+changed since Add. Retired `agent.model` or `agent.subagents` fields are
+reported as ignored host-owned warnings and excluded
+from reconciliation. The new snapshot digest is bound to the reviewed Update
+plan. This does not make those fields valid in a fresh old experimental v1
+source or an explicit `--from` target, even at the same path; the operator must
+copy such a source, remove the fields, inspect and preview it, and give new
+consent before Add or explicit-source Update. Other unknown fields still fail.
+
 There is no canonical byte serialization. Producers should emit stable field
 ordering and formatting for reviewable diffs, but semantic equality is based on
 the parsed manifest. Artifact and source integrity remains byte-based.
@@ -436,16 +448,19 @@ owner errors. Consumers should return all independently actionable schema
 findings from one read, but must stop before policy checks or mutation when
 parsing or schema validation fails.
 
-Diagnostics are not an extension mechanism. A warning must not permit a
-consumer to ignore an unknown field, unsupported component, unsafe path, or
-missing required package source and still call the Claw valid.
+Diagnostics are not an extension mechanism. Only recognized retired host-owned
+fields in the recorded local source read during default Update may be ignored
+with a warning. Unsupported components, other unknown fields, unsafe paths,
+and missing required package sources always fail validation. The exception
+does not make a source valid for new application or publication.
 
 ## Consumer Conformance
 
 A conforming consumer must:
 
 - parse the `CLAW.md` envelope and equivalent grouped JSON form as specified;
-- reject duplicate YAML keys and unknown schema fields;
+- reject duplicate YAML keys and unknown schema fields except recognized
+  retired fields in default Update of the recorded local source;
 - validate all identifiers, exact versions, paths, environment references,
   cron expressions, timezones, and uniqueness constraints;
 - treat unknown metadata keys as opaque strings and support the deprecated

@@ -99,8 +99,8 @@ adopting or merging into an existing agent or managed workspace.
   surfaces.
 - Replacing plugin-bundled companion skills.
 - Defining a new package registry, credential store, or dependency solver.
-- Embedding model, provider, thinking-level, authentication, or other
-  operator-controlled runtime defaults.
+- Embedding model, provider, thinking-level, named delegate, subagent policy,
+  authentication, or other operator-controlled runtime defaults.
 - Embedding channel account ids, group ids, credentials, or bindings.
 - Setting `agents.entries.<id>.skills`; workspace-installed skills remain naturally
   discoverable and must not replace inherited allowlists.
@@ -127,7 +127,7 @@ principles.
 | Public schema | The manifest uses strict grouped `agent`, `metadata`, `workspace`, `packages`, `mcpServers`, and `cronJobs` fields rather than a generic flat entry list. |
 | Completeness | Every declared component is part of the Claw. Unsupported, blocked, or invalid components block `add`; there is no optional `required` flag. |
 | Package identity | Package name and version come from the enclosing package metadata and authenticated publish operation, following the ClawHub plugin precedent. |
-| Operator control | Models, providers, credentials, channel bindings, named delegates, and local runtime defaults are not portable Claw settings. |
+| Operator control | Models, providers, credentials, channel bindings, named delegates, subagent policy, and local runtime defaults are not portable Claw settings. |
 | Agent configuration | Portable identity stays in `agent`; OpenClaw-specific operating policy stays in the strict conventional `profiles/openclaw.yml` sidecar. |
 | Prompt | A non-whitespace `CLAW.md` body is the portable prompt; OpenClaw materializes it as managed `SOUL.md`. |
 | First run | Package-root `BOOTSTRAP.md` is a seed-once native bootstrap input, not an ordinary managed workspace file. |
@@ -308,7 +308,9 @@ semantic changes, and ownership changes require a new schema version so
 existing consumers never interpret or silently discard an unknown declaration.
 
 Unknown fields fail closed. Implementations must not silently drop a declared
-component and still call the agent complete.
+component and still call the agent complete. The only exception is the read of
+the recorded local source during default Update of an installed Claw, described
+under Compatibility and migration; it does not extend schema v1.
 
 ### Agent settings boundary
 
@@ -337,7 +339,8 @@ different conventional `profiles/openclaw.yml`. Canonical producers must omit
 that pointer and use the conventional path. No other metadata key changes
 runtime behavior or carries executable configuration.
 
-The following remain operator controlled and are rejected in a Claw manifest:
+The following remain operator controlled and are rejected in a conforming Claw
+manifest:
 
 - model, provider, thinking level, and runtime implementation;
 - named delegate agents or package-selected subagent policy;
@@ -348,7 +351,7 @@ The following remain operator controlled and are rejected in a Claw manifest:
 - arbitrary config fragments, custom tool profiles, memory provider/storage
   tuning, or unknown future agent fields.
 
-The OpenClaw profile rejects these fields as well. A Claw may request the
+New OpenClaw profiles reject these fields as well. A Claw may request the
 ordinary `sessions_spawn` tool through a bounded tool grant when host policy
 permits it; that is not authority to name delegate agents or set their policy.
 
@@ -622,8 +625,8 @@ the new agent to local channels separately.
 At public Labs launch, OpenClaw registers the `claws` CLI without an environment
 opt-in. The dedicated Claws switch in Control UI Labs writes the persisted
 `gateway.controlUi.experimental.claws` setting. Missing or false means off;
-headless operators may set it explicitly. `OPENCLAW_EXPERIMENTAL_CLAWS` is
-neither required nor an alternate way to enable the feature.
+headless operators may set it explicitly. `OPENCLAW_EXPERIMENTAL_CLAWS` is not
+an authorization signal and cannot enable Claws or bypass the persisted switch.
 
 The same setting gates Claw catalog discovery and Add and Update planning and
 application across Control UI, Gateway, and CLI. Operator-invoked Claw
@@ -758,8 +761,8 @@ a read-only plan and a separately consented apply.
 
 Update may add or change portable agent fields, files, package dependencies, MCP
 servers, and cron jobs owned by the installed Claw. Local modifications become
-manual conflicts. Operator defaults, models, providers, credentials, bindings,
-and unrelated config remain untouched.
+manual conflicts. Operator defaults, models, providers, named delegates,
+subagent policy, credentials, bindings, and unrelated config remain untouched.
 
 Consented update rebuilds the read-only plan immediately before mutation. Each
 owner uses its strongest available concurrency boundary: workspace content
@@ -839,7 +842,8 @@ is not approval of its dependencies or consent to local mutation.
 
 - Agent-id and workspace collisions fail closed.
 - Add never mutates an existing agent.
-- Unknown fields or unsupported declared components fail closed.
+- Unknown fields outside the recorded local Update exception, and unsupported
+  declared components, fail closed.
 - All package dependencies pass existing source, integrity, compatibility, and
   install safety checks.
 - Workspace package reads and destination writes use rooted, symlink-safe,
@@ -903,6 +907,26 @@ ready, it must be restacked around the grouped schema and one-new-agent
 invariant. Prototype SQLite tables may be discarded or migrated while the
 feature remains experimental; removing the former environment opt-in does not
 set the released migration promise.
+
+Fresh local schema-v1 packages from an earlier experimental build still face
+strict validation. If they contain retired `agent.model` or `agent.subagents`
+profile fields, the operator must copy the source, remove those fields,
+inspect the corrected copy, review its complete Add plan, and consent anew.
+Neither the old installation nor the Labs switch supplies that consent.
+
+For an already installed local Claw, default Update may use a compatibility
+reader only for the canonical local source path recorded in its provenance.
+Content at that path may have changed since Add. The reader snapshots the
+current source, reports recognized retired fields as ignored host-owned
+warnings in the Update plan, and excludes them from reconciliation; current
+operator settings remain untouched. The new snapshot digest, warnings, and
+effects are bound to the plan and revalidated before mutation. An explicit
+`--from`, even for the same path, uses strict current manifest and profile
+validation. Retired fields in that candidate require a corrected copy, fresh
+preview, and new consent.
+The exception does not apply to fresh inspect, validation, Add, build, registry
+publication, or arbitrary unknown fields. If the recorded source identity
+cannot be verified, Update stops for manual recovery.
 
 ## Rollout plan
 
@@ -1035,9 +1059,15 @@ ClawHub-to-Control-UI run demonstrate:
     effect after mutation stops later phases and retains diagnosable partial
     state. The real local ClawHub run also proves status, update, Labs-off
     operation, and safe removal before merge or deployment.
-24. Manifests and OpenClaw profiles reject package-selected models, providers,
-    and named delegates. `sessions_spawn` remains an ordinary bounded tool
-    grant under host policy.
+24. New manifests and OpenClaw profiles reject package-selected models,
+    providers, named delegates, and subagent policy. `sessions_spawn` remains
+    an ordinary bounded tool grant under host policy.
+25. Fresh old experimental local v1 sources with retired policy fields require
+    a corrected copy, complete preview, and new consent. Default Update may
+    read those fields from the installed Claw's recorded local source path,
+    including changed contents, as ignored host-owned warnings; it binds the
+    new snapshot to the plan and preserves operator settings. Explicit `--from`
+    and other sources remain strict.
 
 ## Unresolved questions
 

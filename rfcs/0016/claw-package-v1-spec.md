@@ -170,7 +170,9 @@ to a regular UTF-8 text file inside the package.
 
 If the selected basename is `CLAW.md`, compared case-insensitively, the consumer
 uses the Markdown-envelope parser. Other selected filenames are parsed as JSON.
-Both forms pass through the same strict schema version 1 validator.
+Both forms pass through the same strict schema version 1 validator. Only
+recognized retired host-owned fields in the recorded local source read during
+default Update receive the narrow exception described under Update Semantics.
 
 A package must not select behavior from package scripts or another undeclared
 manifest. Installing or inspecting a Claw package must not execute package
@@ -419,6 +421,17 @@ Update targets the installed agent identified by provenance and never another
 agent that happens to share a manifest id. It must produce a read-only
 reconciliation plan before separately consented mutation.
 
+For an installed local Claw, default Update may use a compatibility reader only
+for the canonical local source path recorded in provenance. Its contents may
+have changed since Add. The client snapshots the current complete source and
+binds its digest and effects to the read-only plan, then revalidates them before
+mutation. Retired `agent.model` or `agent.subagents` fields become ignored
+host-owned warnings, not Claw-owned state or
+removal actions; live operator settings are preserved. An explicit `--from`,
+even for the same path, and every other source must pass strict current
+manifest and profile validation. If the recorded source identity cannot be
+verified, Update stops for manual recovery.
+
 The installed local agent id and workspace are immutable update identity. A
 different `agent.id` in a later package version changes the default for new adds
 only; it must not rename or move an existing installed agent. Update may move to
@@ -533,6 +546,12 @@ added under a synthesized development identity. The consumer must record its
 canonical source path and exact digest. A development identity must not be
 mistaken for an authenticated registry identity.
 
+A fresh old experimental local v1 source with retired host-owned policy fields
+must fail validation. To add it, the operator copies the source, removes those
+fields, inspects and previews the corrected package, and gives new consent.
+The default Update exception does not apply to fresh inspect,
+Add, project validation, build, or registry publication.
+
 An unpacked development directory may select its manifest through a symlink
 whose canonical target is a regular file inside that directory. This authoring
 convenience is not publishable package content: registry artifacts continue to
@@ -589,7 +608,8 @@ A conforming registry must:
 
 A conforming applying client must:
 
-- verify package identity, containment, manifest schema, and integrity locally;
+- verify package identity, containment, and integrity locally, and validate
+  manifest schema with only the recognized retired-field exception above;
 - discover and validate its conventional profile and native bootstrap;
 - resolve exact dependencies before planning;
 - expose a complete read-only plan and require explicit consent;

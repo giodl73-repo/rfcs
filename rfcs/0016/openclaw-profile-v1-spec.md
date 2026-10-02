@@ -25,8 +25,10 @@ The canonical path is `profiles/openclaw.yml`. When present, the file:
 - is at most 256 KiB;
 - participates byte-for-byte in package or development-source integrity;
 - uses JSON-compatible YAML and rejects duplicate keys, anchors, aliases,
-  merge keys, explicit tags, unknown fields, and unsupported versions; and
-- is validated during inspect and before add, update, dev, or build succeeds.
+  merge keys, explicit tags, and unsupported versions; and
+- is strictly validated during inspect, add, dev, build, and Update planning;
+  only recognized retired fields at the recorded local path receive the default
+  Update exception described below.
 
 For shipped compatibility, `metadata.openclaw.config` may select a safe
 package-relative `.yml` or `.yaml` profile. OpenClaw emits a deprecation warning.
@@ -183,12 +185,22 @@ grant, memory capability, filesystem-access, or extension increase is a
 capability escalation requiring renewed exact consent. Status and doctor report
 profile and extension drift without silently changing plugin enablement.
 
+Only during default Update of an installed local Claw may OpenClaw read the
+profile at its recorded canonical local source path despite retired
+`agent.model` or `agent.subagents` fields. The source may have
+changed since Add; OpenClaw binds its current complete snapshot to the reviewed
+plan, reports each retired field as an ignored host-owned warning, excludes
+them from reconciliation, and preserves current operator settings. Fresh
+inspect, Add, project validation, dev, build, publication, and explicit
+`--from` Update use the strict schema above; other unknown fields still fail.
+
 Remove releases extension dependency edges and retains plugins by default.
 Uninstall is a separately selected canonical plugin-owner operation.
 
-The profile cannot carry models, providers, named delegates, subagent policy,
-credentials, bindings, custom tool profiles, sender-specific policy, memory
-providers, remote memory endpoints, local storage paths, or indexing tuning.
+A conforming profile cannot carry models, providers, named delegates, subagent
+policy, credentials, bindings, custom tool profiles, sender-specific policy,
+memory providers, remote memory endpoints, local storage paths, or indexing
+tuning.
 
 ## Conformance
 
@@ -200,7 +212,8 @@ A conforming OpenClaw adapter must:
 - review and integrity-bind the canonical plugin owner's effective capabilities
   before mutating a plugin-bearing Claw;
 - use canonical plugin owners for every extension;
-- fail closed on unsupported settings and required extension failures;
+- fail closed on unsupported settings except the recognized retired fields
+  during default Update, and on required extension failures;
 - bind exact profile bytes and resolved effects into integrity;
 - keep credentials and resolved secrets outside package and Claw state; and
 - preserve referenced plugins by default during removal.
