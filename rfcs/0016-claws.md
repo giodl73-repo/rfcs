@@ -3,7 +3,7 @@ title: Claws
 authors:
   - Gio
 created: 2026-07-03
-last_updated: 2026-10-01
+last_updated: 2026-10-02
 status: draft
 rfc_pr: https://github.com/openclaw/rfcs/pull/48
 ---
@@ -631,8 +631,12 @@ migration that creates or changes an installed Claw is gated as well; internal
 storage maintenance needed for status or removal is not. A new request for one
 of those gated operations while Labs is off must fail with an explicit disabled
 result; hiding a UI control alone is insufficient. An Add or Update already
-admitted before the switch is turned off may finish or recover under its
-reviewed plan, rather than being interrupted after partial mutation.
+admitted before the switch is turned off may settle effects already committed,
+but must not start another gated mutation after the next owner boundary. It may
+report completion only if no further gated mutation is needed. Otherwise it
+stops with durable, diagnosable partial provenance; status, doctor, and safe
+Remove remain available while Labs is off. Continuing Add or Update requires
+re-enabling Labs and consenting to a fresh plan.
 
 Turning Labs off does not stop installed agents or hide their ordinary agent
 cards and chat. Status, doctor, export, and safe Remove remain available through
@@ -978,8 +982,10 @@ ClawHub-to-Control-UI run demonstrate:
    Control UI, Gateway, and CLI; `OPENCLAW_EXPERIMENTAL_CLAWS` cannot bypass it.
    Turning Labs off leaves installed agents and chat running and preserves
    status, doctor, export, local authoring, and safe removal. Already-admitted
-   mutations may settle under their reviewed plans. The switch is not consent
-   or a substitute for host authorization.
+   operations may settle committed effects, but cannot start another gated
+   mutation; incomplete work remains visible and removable while off and needs
+   a fresh reviewed plan after re-enabling Labs. The switch is not consent or a
+   substitute for host authorization.
 4. Add dry-run shows one new agent, one new workspace, every file/package/MCP/
    cron action, all collisions, and stable machine-readable blockers.
 5. An existing agent id or workspace blocks add unless an explicit unused
