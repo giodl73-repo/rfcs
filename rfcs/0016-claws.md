@@ -820,10 +820,12 @@ ClawHub owns authenticated publication, package ownership, search/detail/API
 surfaces, hosted feed export, and authoring guidance. OpenClaw owns manifest
 validation, planning, local mutation, provenance, and lifecycle behavior. Both
 must share the schema and fixtures rather than maintain divergent validators.
-The first public Labs catalog exposes only reviewed `@openclaw/*` Claws. A
-catalog listing is a discovery aid, not approval of its dependencies or consent
-to local mutation. Local development sources remain valid CLI inputs without
-ClawHub publication.
+For the first public Labs rollout, ClawHub admits Claw-family publication only
+under the `@openclaw` publisher and the Control UI catalogs only those reviewed
+official Claws. This temporary registry admission and discovery policy does not
+restrict the portable Claw schema or local-source CLI use; community publication
+requires a separately reviewed policy change. A catalog listing is a discovery
+aid, not approval of its dependencies or consent to local mutation.
 
 ### Safety and security
 
